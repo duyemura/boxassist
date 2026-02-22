@@ -9,15 +9,6 @@ interface CommandBarProps {
   memberCount?: number
 }
 
-const DEMO_STATS = {
-  totalAgents: 3,
-  activeAgents: 1,
-  totalRuns: 14,
-  totalCostUsd: '3.40',
-  totalValue: '1243',
-  roi: 366,
-}
-
 // The agent "running right now" in demo
 const DEMO_RUNNING_AGENTS = [
   { id: 'demo-1', name: 'At-Risk Monitor', membersScanned: 247, startedAt: '1h ago' },
@@ -32,21 +23,43 @@ export default function CommandBar({ isDemo, agents, scanning, memberCount }: Co
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (isDemo) { setStats(DEMO_STATS); setLoading(false); return }
-    fetch('/api/stats/roi')
-      .then(r => r.json())
-      .then(d => {
-        setStats({
-          totalAgents: agents.length,
-          activeAgents: agents.filter((a: any) => a.active).length,
-          totalRuns: d.totalRuns ?? 0,
-          totalCostUsd: parseFloat(d.totalBilledUsd ?? '0').toFixed(2),
-          totalValue: Math.round(parseFloat(d.totalValue ?? '0')).toString(),
-          roi: d.roi ?? 0,
+    const loadStats = async () => {
+      if (isDemo) {
+        // Pull real stats from demo activity in last 24h
+        try {
+          const res = await fetch('/api/stats/demo-roi')
+          const d = await res.json()
+          setStats({
+            totalAgents: 3,
+            activeAgents: 1,
+            totalRuns: d.totalRuns,
+            totalCostUsd: d.totalCostUsd,
+            totalValue: d.totalValue,
+            roi: d.roi,
+            noActivity: d.seeded || d.totalRuns === 0,
+          })
+        } catch {
+          setStats({ totalAgents: 3, activeAgents: 1, totalRuns: 0, totalCostUsd: '0.00', totalValue: '0', roi: 0, noActivity: true })
+        }
+        setLoading(false)
+        return
+      }
+      fetch('/api/stats/roi')
+        .then(r => r.json())
+        .then(d => {
+          setStats({
+            totalAgents: agents.length,
+            activeAgents: agents.filter((a: any) => a.active).length,
+            totalRuns: d.totalRuns ?? 0,
+            totalCostUsd: parseFloat(d.totalBilledUsd ?? '0').toFixed(2),
+            totalValue: Math.round(parseFloat(d.totalValue ?? '0')).toString(),
+            roi: d.roi ?? 0,
+          })
         })
-      })
-      .catch(() => setStats(null))
-      .finally(() => setLoading(false))
+        .catch(() => setStats(null))
+        .finally(() => setLoading(false))
+    }
+    loadStats()
   }, [isDemo, agents])
 
   // Which agents are actually running right now
@@ -54,11 +67,12 @@ export default function CommandBar({ isDemo, agents, scanning, memberCount }: Co
     ? (isDemo ? DEMO_RUNNING_AGENTS : agents.filter((a: any) => a.active).map((a: any) => ({ id: a.id, name: a.name, membersScanned: memberCount ?? 0 })))
     : []
 
+  const noActivity = stats?.noActivity === true
   const roi = stats?.roi ?? 0
-  const totalValue = stats?.totalValue ? `$${parseInt(stats.totalValue).toLocaleString()}` : '—'
-  const roiStr = roi > 0 ? `${roi}x` : '—'
-  const totalCost = stats?.totalCostUsd ? `$${stats.totalCostUsd}` : '—'
-  const totalRuns = stats?.totalRuns ?? '—'
+  const totalValue = noActivity ? '—' : (stats?.totalValue ? `$${parseInt(stats.totalValue).toLocaleString()}` : '—')
+  const roiStr = noActivity ? '—' : (roi > 0 ? `${roi}x` : '—')
+  const totalCost = noActivity ? '—' : (stats?.totalCostUsd && parseFloat(stats.totalCostUsd) > 0 ? `$${stats.totalCostUsd}` : '—')
+  const totalRuns = noActivity ? 0 : (stats?.totalRuns ?? 0)
 
   return (
     <>
