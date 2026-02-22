@@ -49,10 +49,11 @@ export async function POST(req: NextRequest) {
     .replace(/\n/g, '<br>')
 
   // Generate IDs for reply threading
-  // replyToken is what goes in the email address (text, URL-safe)
+  // replyToken is what goes in the email address — must be unique per send
   // actionUuid is the real DB row id (uuid format)
-  const replyToken = `demo-${Buffer.from(`${toEmail}-${Date.now()}`).toString('base64url').slice(0, 16)}`
   const actionUuid = crypto.randomUUID()
+  // Use the UUID (url-safe, unique) as the reply token — no more hash collisions
+  const replyToken = `d${actionUuid.replace(/-/g, '').slice(0, 20)}`
   const replyTo = `reply+${replyToken}@lunovoria.resend.app`
 
   try {

@@ -8,14 +8,15 @@ const supabase = createClient(
 
 /**
  * GET /api/conversations/by-email?email=dan@pushpress.com
- * Returns full conversation history for a member across all threads,
- * grouped by action_id (thread), newest thread first.
+ * Returns all conversation threads for a member, grouped by action_id.
+ * Each thread includes resolved/open status from agent_actions.
  */
 export async function GET(req: NextRequest) {
   const email = req.nextUrl.searchParams.get('email')
   if (!email) return NextResponse.json({ error: 'No email' }, { status: 400 })
 
-  const { data, error } = await supabase
+  // Fetch all conversation rows for this email
+  const { data: convRows, error } = await supabase
     .from('agent_conversations')
     .select('id, action_id, role, text, created_at, member_name')
     .eq('member_email', email)
@@ -23,29 +24,57 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Group by action_id (thread)
-  const threads: Record<string, any> = {}
-  for (const row of data ?? []) {
-    if (!threads[row.action_id]) {
-      threads[row.action_id] = {
+  // Group by action_id
+  const threadMap: Record<string, any> = {}
+  for (const row of convRows ?? []) {
+    if (!threadMap[row.action_id]) {
+      threadMap[row.action_id] = {
         action_id: row.action_id,
         member_name: row.member_name,
         messages: [],
         started_at: row.created_at,
         last_at: row.created_at,
+        resolved: false,
+        needs_review: false,
       }
     }
-    threads[row.action_id].messages.push({
+    const msg = {
       ...row,
-      _decision: row.role === 'agent_decision' ? (() => { try { return JSON.parse(row.text) } catch { return null } })() : null,
-    })
-    threads[row.action_id].last_at = row.created_at
+      _decision: row.role === 'agent_decision'
+        ? (() => { try { return JSON.parse(row.text) } catch { return null } })()
+        : null,
+    }
+    threadMap[row.action_id].messages.push(msg)
+    threadMap[row.action_id].last_at = row.created_at
+
+    // Check if this decision row marked it closed
+    if (msg._decision?.action === 'close' || msg._decision?.resolved) {
+      threadMap[row.action_id].resolved = true
+    }
   }
 
-  // Sort threads newest first
-  const sorted = Object.values(threads).sort((a: any, b: any) =>
-    new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
-  )
+  // Enrich with live status from agent_actions (resolved_at, needs_review)
+  const tokens = Object.keys(threadMap)
+  if (tokens.length > 0) {
+    const { data: actions } = await supabase
+      .from('agent_actions')
+      .select('id, content, resolved_at, needs_review, approved')
+    
+    for (const action of actions ?? []) {
+      const token = action.content?._replyToken
+      if (token && threadMap[token]) {
+        threadMap[token].resolved = !!action.resolved_at || !!action.approved
+        threadMap[token].needs_review = !!action.needs_review
+        threadMap[token].action_db_id = action.id
+      }
+    }
+  }
+
+  // Sort threads: open first, then by recency
+  const sorted = Object.values(threadMap).sort((a: any, b: any) => {
+    if (a.resolved !== b.resolved) return a.resolved ? 1 : -1
+    return new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
+  })
 
   return NextResponse.json({ email, threads: sorted })
 }
