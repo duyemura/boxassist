@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession, getTier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
+import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
 
@@ -45,18 +46,32 @@ export async function POST(req: NextRequest) {
       .update({ approved: true })
       .eq('id', actionId)
     
-    // Send the email
+    // Send the email — prefer Gmail (sends from owner's real address), fall back to Resend
     const content = action.content as any
-    if (content.memberEmail && content.draftedMessage) {
+    const gymId = action.agent_runs?.gym_id
+    if (content.memberEmail && content.draftedMessage && gymId) {
       try {
-        await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL!,
-          to: content.memberEmail,
-          subject: content.messageSubject || 'Checking in from the gym',
-          html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
-            ${content.draftedMessage.split('\n').map((p: string) => `<p>${p}</p>`).join('')}
-          </div>`
-        })
+        const gmailAddress = await isGmailConnected(gymId)
+        if (gmailAddress) {
+          // Send via owner's Gmail — member sees it from their actual coach
+          await sendGmailMessage({
+            gymId,
+            to: content.memberEmail,
+            subject: content.messageSubject || 'Checking in from the gym',
+            body: content.draftedMessage,
+          })
+        } else {
+          // No Gmail connected — fall back to Resend
+          await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL!,
+            replyTo: `reply+${actionId}@lunovoria.resend.app`,
+            to: content.memberEmail,
+            subject: content.messageSubject || 'Checking in from the gym',
+            html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
+              ${content.draftedMessage.split('\n').map((p: string) => `<p>${p}</p>`).join('')}
+            </div>`
+          })
+        }
       } catch (emailError) {
         console.error('Email send error:', emailError)
       }

@@ -5,9 +5,9 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'GymOS — The Operating System for Your Gym',
-  description: 'AI-powered autopilot for boutique gyms. GymOS watches your PushPress data, finds at-risk members, drafts re-engagement messages, and works while you teach.',
-  keywords: 'gym management, member retention, gym automation, PushPress, CrossFit, yoga studio, BJJ, pilates, spin studio, gym AI',
+  title: 'GymAgents — Keep more members with less work',
+  description: 'GymAgents watches your PushPress member data, finds who\'s about to cancel, and drafts personal messages from you — automatically. For CrossFit, yoga, BJJ, pilates, and more.',
+  keywords: 'gym member retention, reduce gym churn, PushPress autopilot, gym automation, CrossFit retention, yoga studio software',
 }
 
 export default function RootLayout({

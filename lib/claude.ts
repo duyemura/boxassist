@@ -1,9 +1,155 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { AtRiskMember } from './pushpress'
+/**
+ * GymAgents Claude runtime
+ *
+ * Two modes:
+ * 1. runAtRiskDetector — classic direct-call for the existing at_risk_detector autopilot
+ * 2. runAgentWithMCP — spawns the PushPress MCP server and gives Claude tool access to
+ *    all PushPress data via the @pushpress/pushpress built-in MCP server
+ */
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
-})
+import Anthropic from '@anthropic-ai/sdk'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import type { AtRiskMember } from './pushpress'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+// Path to the PP MCP server binary (installed as dep in the Next.js app)
+const PP_MCP_BIN = require.resolve('@pushpress/pushpress/bin/mcp-server.js')
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MCP-powered agent runner
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface MCPAgentOptions {
+  gymName: string
+  systemPrompt: string
+  userPrompt: string
+  apiKey: string
+  companyId: string
+  /** Max Claude turns before stopping (default 5) */
+  maxTurns?: number
+}
+
+export interface MCPAgentResult {
+  output: Record<string, unknown>
+  toolCallCount: number
+  rawText: string
+}
+
+/**
+ * Run a Claude agent that has full access to PushPress data via the PP MCP server.
+ * Spawns `mcp start` as a child process, connects via stdio, then runs a tool-use loop.
+ */
+export async function runAgentWithMCP(opts: MCPAgentOptions): Promise<MCPAgentResult> {
+  const { gymName, systemPrompt, userPrompt, apiKey, companyId, maxTurns = 5 } = opts
+
+  // Spawn the PP MCP server
+  const transport = new StdioClientTransport({
+    command: process.execPath, // node
+    args: [PP_MCP_BIN, 'start', '--api-key', apiKey, '--company-id', companyId],
+    env: {
+      ...process.env,
+      // Ensure the MCP server uses dev API (same as our existing pushpress.ts)
+      PUSHPRESS_SERVER: 'development'
+    }
+  })
+
+  const mcpClient = new Client(
+    { name: 'gymagents-runtime', version: '1.0.0' },
+    { capabilities: {} }
+  )
+
+  await mcpClient.connect(transport)
+
+  try {
+    // Discover available tools
+    const { tools: mcpTools } = await mcpClient.listTools()
+
+    // Convert MCP tools to Anthropic tool format
+    const anthropicTools: Anthropic.Tool[] = mcpTools.map(t => ({
+      name: t.name,
+      description: t.description ?? t.name,
+      input_schema: (t.inputSchema ?? { type: 'object', properties: {} }) as Anthropic.Tool['input_schema']
+    }))
+
+    const messages: Anthropic.MessageParam[] = [
+      { role: 'user', content: userPrompt }
+    ]
+
+    let toolCallCount = 0
+    let finalText = ''
+
+    // Agentic loop
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 4000,
+        system: systemPrompt,
+        tools: anthropicTools,
+        messages
+      })
+
+      // Collect text
+      const textBlocks = response.content.filter(b => b.type === 'text')
+      if (textBlocks.length > 0) {
+        finalText = textBlocks.map(b => (b as Anthropic.TextBlock).text).join('\n')
+      }
+
+      // Stop if no tool use
+      if (response.stop_reason !== 'tool_use') break
+
+      // Add assistant response to messages
+      messages.push({ role: 'assistant', content: response.content })
+
+      // Execute each tool call via MCP
+      const toolResults: Anthropic.ToolResultBlockParam[] = []
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue
+        toolCallCount++
+
+        let resultContent: string
+        try {
+          const mcpResult = await mcpClient.callTool({
+            name: block.name,
+            arguments: block.input as Record<string, unknown>
+          })
+          // MCP result content is an array of content blocks
+          const textContent = mcpResult.content
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text)
+            .join('\n')
+          resultContent = textContent || JSON.stringify(mcpResult.content)
+        } catch (err: any) {
+          resultContent = `Error calling ${block.name}: ${err.message}`
+        }
+
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: resultContent
+        })
+      }
+
+      messages.push({ role: 'user', content: toolResults })
+    }
+
+    // Parse JSON from final text
+    let output: Record<string, unknown> = { text: finalText }
+    try {
+      const match = finalText.match(/\{[\s\S]*\}/)
+      if (match) output = JSON.parse(match[0])
+    } catch {}
+
+    return { output, toolCallCount, rawText: finalText }
+  } finally {
+    await mcpClient.close().catch(() => {})
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Existing at-risk detector (kept for backward compat with existing autopilot)
+// ──────────────────────────────────────────────────────────────────────────────
 
 export interface AgentAction {
   memberId: string
@@ -24,6 +170,7 @@ export interface AgentOutput {
   urgentCount: number
   actions: AgentAction[]
   gymInsight: string
+  _usage?: { input_tokens: number; output_tokens: number }
 }
 
 export async function runAtRiskDetector(
@@ -54,26 +201,26 @@ Risk score: ${m.riskScore}/100
 
 For each member, reason step by step about:
 1. What specifically triggered the risk flag (be specific about the pattern)
-2. What's the most likely reason they've gone quiet (life gets busy, injury, lost motivation, etc.)
+2. What's the most likely reason they've gone quiet
 3. What's the best message to re-engage them — personal, warm, gym-owner voice. Reference their specific pattern. Never sound like a template.
-4. What risk level they are (high = hasn't been in 21+ days, medium = 14-20 days, low = early warning)
+4. What risk level they are (high = 21+ days, medium = 14-20 days, low = early warning)
 
 Output this exact JSON structure:
 {
   "summary": "one sentence summary of what your autopilot found today",
   "totalAtRisk": number,
-  "urgentCount": number (high risk members),
-  "gymInsight": "one actionable insight about the pattern you're seeing across these members",
+  "urgentCount": number,
+  "gymInsight": "one actionable insight about the pattern you're seeing",
   "actions": [
     {
       "memberId": "string",
-      "memberName": "string", 
+      "memberName": "string",
       "memberEmail": "string",
       "riskLevel": "high" | "medium" | "low",
-      "riskReason": "specific, personal reason this member was flagged (2-3 sentences)",
-      "recommendedAction": "what the gym owner should do (send message, call, etc.)",
-      "draftedMessage": "the actual message to send — warm, personal, not a template. Should be 3-5 sentences. Reference their specific attendance pattern.",
-      "messageSubject": "email subject line (casual, not marketing-y)",
+      "riskReason": "specific, personal reason (2-3 sentences)",
+      "recommendedAction": "what the gym owner should do",
+      "draftedMessage": "actual message — warm, personal, 3-5 sentences, references their specific pattern",
+      "messageSubject": "email subject line (casual)",
       "confidence": 0-100,
       "insights": "one insight about this specific member"
     }
@@ -83,23 +230,86 @@ Output this exact JSON structure:
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
     max_tokens: 4000,
-    messages: [
-      {
-        role: 'user',
-        content: userPrompt
-      }
-    ],
+    messages: [{ role: 'user', content: userPrompt }],
     system: systemPrompt
   })
 
   const content = response.content[0]
   if (content.type !== 'text') throw new Error('Unexpected response type')
-  
-  // Extract JSON from response
+
   const text = content.text.trim()
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('No JSON found in response')
-  
-  const result = JSON.parse(jsonMatch[0]) as AgentOutput
-  return result
+
+  const parsed = JSON.parse(jsonMatch[0]) as AgentOutput
+  // Attach token usage for cost tracking
+  parsed._usage = {
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+  }
+  return parsed
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Event-triggered agent (used by webhook handler)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export async function runEventAgentWithMCP(opts: {
+  gym: { id: string; gym_name: string; pushpress_api_key: string; pushpress_company_id: string }
+  autopilot: { skill_type: string; name?: string; system_prompt?: string; action_type?: string }
+  eventType: string
+  eventPayload: Record<string, unknown>
+}): Promise<MCPAgentResult> {
+  const { gym, autopilot, eventType, eventPayload } = opts
+
+  const systemPrompt =
+    autopilot.system_prompt ??
+    buildDefaultEventSystemPrompt(eventType, gym.gym_name)
+
+  const userPrompt = buildEventUserPrompt(eventType, eventPayload, gym.gym_name)
+
+  return runAgentWithMCP({
+    gymName: gym.gym_name,
+    systemPrompt,
+    userPrompt,
+    apiKey: gym.pushpress_api_key,
+    companyId: gym.pushpress_company_id,
+    maxTurns: 3
+  })
+}
+
+function buildDefaultEventSystemPrompt(eventType: string, gymName: string): string {
+  const prompts: Record<string, string> = {
+    'customer.created': `You are the onboarding assistant for ${gymName}. A new member just joined! Use the PushPress tools to get their full profile, then draft a warm, personal welcome message from the gym owner. Mention what to expect their first week. Output JSON: { subject, body, notes }.`,
+    'customer.status.changed': `You are the member engagement assistant for ${gymName}. A member's status just changed. Use PushPress tools to understand their history and current situation. If they've gone inactive or cancelled, draft a sincere, non-pushy win-back message. Output JSON: { subject, body, urgency, notes }.`,
+    'enrollment.created': `You are the enrollment assistant for ${gymName}. A member just enrolled in a program. Use PushPress tools to look up their profile. Draft a congratulatory message with helpful next steps. Output JSON: { subject, body, notes }.`,
+    'enrollment.status.changed': `You are the enrollment assistant for ${gymName}. A member's enrollment status changed. Use PushPress tools to check context. Draft an appropriate message. Output JSON: { subject, body, notes }.`,
+    'checkin.created': `You are the engagement assistant for ${gymName}. A member just checked in. Use PushPress tools to check their checkin history — detect milestones like 10th visit, comeback after absence, streak. Output JSON: { milestone_detected, milestone_note, action_recommended }.`,
+    'appointment.scheduled': `You are the appointment assistant for ${gymName}. An appointment was just booked. Use PushPress tools to look up the customer. Draft a confirmation message. Output JSON: { subject, body, notes }.`,
+    'appointment.canceled': `You are the retention assistant for ${gymName}. An appointment was just canceled. Use PushPress tools to check their history. Draft a brief, non-pushy reschedule offer. Output JSON: { subject, body, notes }.`,
+    'reservation.created': `You are the class engagement assistant for ${gymName}. A member just reserved a class spot. Use PushPress tools to check their profile. Consider sending encouragement if it's their first class or a comeback. Output JSON: { action_needed, subject, body }.`,
+    'reservation.canceled': `You are the retention assistant for ${gymName}. A member just canceled a class reservation. Use PushPress tools to check their attendance pattern. If concerning, draft a light check-in. Output JSON: { action_needed, subject, body }.`,
+  }
+  return (
+    prompts[eventType] ??
+    `You are the AI assistant for ${gymName}. Use PushPress tools to understand the context of this event, then provide the most helpful response. Output JSON.`
+  )
+}
+
+function buildEventUserPrompt(
+  eventType: string,
+  payload: Record<string, unknown>,
+  gymName: string
+): string {
+  const data = (payload.data ?? payload.object ?? payload) as Record<string, unknown>
+  const customerId = data.customerUuid ?? data.customer_id ?? data.customer ?? data.uuid ?? null
+
+  return `Gym: ${gymName}
+Event: ${eventType}
+Timestamp: ${new Date().toISOString()}
+${customerId ? `Customer ID: ${customerId} — use PushPress tools to look up their full profile and history.` : ''}
+Event data:
+${JSON.stringify(data, null, 2)}
+
+Use the available PushPress tools to get context (customer profile, checkin history, etc.), then generate your response. Be specific — reference actual data you find. Output valid JSON only.`
 }

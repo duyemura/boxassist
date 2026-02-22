@@ -50,6 +50,7 @@ export type Database = {
           pushpress_company_id: string
           gym_name: string
           member_count: number
+          webhook_id: string | null
           connected_at: string
         }
       }

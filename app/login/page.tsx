@@ -14,9 +14,9 @@ function LoginForm() {
   const errorParam = searchParams.get('error')
 
   const errorMessages: Record<string, string> = {
-    invalid: 'That login link was invalid. Please request a new one.',
-    expired: 'That login link has expired. Please request a new one.',
-    notfound: 'Account not found. Please check your email.'
+    invalid: 'That login link didn\'t work. Request a new one below.',
+    expired: 'That login link expired. Request a new one — they\'re quick.',
+    notfound: 'We couldn\'t find an account with that email.'
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,12 +31,12 @@ function LoginForm() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Something went wrong')
+        setError(data.error ?? 'Something went wrong — please try again.')
       } else {
         setSent(true)
       }
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError('Something went wrong — please try again.')
     }
     setLoading(false)
   }
@@ -44,58 +44,56 @@ function LoginForm() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md">
+
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-10 h-10 bg-blue-700 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-blue-700  flex items-center justify-center">
               <span className="text-white font-bold">G</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl tracking-tight">GymOS</span>
+            <span className="font-bold text-gray-900 text-xl">GymAgents</span>
           </Link>
-          <p className="text-gray-500 mt-2 text-sm">Your gym's AI autopilot</p>
-          <div className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full mt-2">
-            Powered by PushPress
-          </div>
+          <p className="text-gray-400 mt-2 text-sm">Your gym on autopilot</p>
         </div>
 
-        <div className="card p-8">
+        <div className="bg-white  border border-gray-200 p-8 shadow-sm">
+
           {errorParam && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6 text-red-700 text-sm">
-              {errorMessages[errorParam] || 'Something went wrong. Please try again.'}
+            <div className="bg-red-50 border border-red-100  p-3 mb-6 text-red-600 text-sm">
+              {errorMessages[errorParam] ?? 'Something went wrong — please try again.'}
             </div>
           )}
 
           {sent ? (
             <div className="text-center">
               <div className="text-5xl mb-4">📬</div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Check your email</h2>
-              <p className="text-gray-600 text-sm mb-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Check your inbox</h2>
+              <p className="text-gray-500 text-sm mb-2">
                 We sent a login link to <strong>{email}</strong>.
-                Click it to access your gym dashboard.
               </p>
-              <p className="text-gray-400 text-xs">Link expires in 15 minutes. Can't find it? Check spam.</p>
+              <p className="text-gray-400 text-xs mb-6">Link expires in 15 minutes. Can't find it? Check spam.</p>
               <button
                 onClick={() => { setSent(false); setEmail('') }}
-                className="mt-4 text-blue-700 hover:text-blue-800 text-sm font-medium"
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
               >
                 Try a different email
               </button>
             </div>
           ) : (
             <>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to GymOS</h1>
-              <p className="text-gray-500 text-sm mb-6">
-                We'll send a magic link to your email — no password needed.
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome back</h1>
+              <p className="text-gray-400 text-sm mb-6">
+                Enter your email and we'll send a link. No password needed.
               </p>
 
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm">
+                <div className="bg-red-50 border border-red-100  p-3 mb-4 text-red-600 text-sm">
                   {error}
                 </div>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">
                     Email address
                   </label>
                   <input
@@ -103,7 +101,7 @@ function LoginForm() {
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@yourgym.com"
-                    className="input"
+                    className="w-full px-4 py-3  border border-gray-200 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 text-gray-900 placeholder-gray-300"
                     required
                     autoFocus
                   />
@@ -111,29 +109,15 @@ function LoginForm() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+                  className="w-full bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white font-bold py-3.5  transition-colors"
                 >
-                  {loading ? 'Sending magic link...' : 'Send my login link →'}
+                  {loading ? 'Sending…' : 'Send my login link →'}
                 </button>
               </form>
 
-              <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-                <p className="text-gray-500 text-sm">New to GymOS?</p>
-                <p className="text-gray-600 text-sm mt-1">
-                  Just enter your email — we'll create your account automatically.
-                </p>
-              </div>
-
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <p className="text-blue-700 text-xs text-center">
-                  GymOS connects to your{' '}
-                  <a href="https://www.pushpress.com" target="_blank" rel="noopener" className="font-semibold underline">
-                    PushPress
-                  </a>{' '}
-                  account. Don't have PushPress?{' '}
-                  <a href="https://www.pushpress.com" target="_blank" rel="noopener" className="font-semibold underline">
-                    Start free →
-                  </a>
+              <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+                <p className="text-gray-400 text-sm">
+                  New here? Just enter your email — we'll set up your account right away.
                 </p>
               </div>
             </>
@@ -141,7 +125,7 @@ function LoginForm() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-4">
-          <Link href="/" className="hover:text-gray-600">← Back to GymOS</Link>
+          <Link href="/" className="hover:text-gray-600">← Back to GymAgents</Link>
         </p>
       </div>
     </div>
@@ -150,7 +134,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="text-gray-400">Loading...</div></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="text-gray-400">Loading…</div></div>}>
       <LoginForm />
     </Suspense>
   )

@@ -7,6 +7,13 @@ const JWT_SECRET = process.env.JWT_SECRET!
 export interface SessionUser {
   id: string
   email: string
+  // Demo session fields
+  userId?: string
+  gymName?: string
+  companyId?: string
+  apiKey?: string
+  isDemo?: boolean
+  tier?: string
 }
 
 export async function getSession(): Promise<SessionUser | null> {
@@ -16,6 +23,10 @@ export async function getSession(): Promise<SessionUser | null> {
     if (!token) return null
     
     const decoded = jwt.verify(token, JWT_SECRET) as SessionUser
+    // Normalize demo sessions: userId field → id field
+    if ((decoded as any).userId && !(decoded as any).id) {
+      (decoded as any).id = (decoded as any).userId
+    }
     return decoded
   } catch {
     return null
