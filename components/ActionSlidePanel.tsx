@@ -421,6 +421,28 @@ function MemberActionPanel({
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
+  // On mount: if this action already has a live thread (was sent before panel opened),
+  // load it immediately so re-opening the panel shows the full conversation
+  useEffect(() => {
+    const existingToken = (action.content as any)?._replyToken
+    if (!existingToken) return
+    // Load the thread and start polling if no decision yet
+    fetch(`/api/conversations/${existingToken}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.messages?.length) {
+          setLiveThread(data.messages)
+          setLiveReplyToken(existingToken)
+          setRealSent(true)
+          setRealSentTo((action.content as any)?.memberEmail ?? '')
+          // Keep polling only if no decision yet
+          const hasDecision = data.messages.some((m: any) => m.role === 'agent_decision')
+          if (!hasDecision) startLiveThread(existingToken)
+        }
+      })
+      .catch(() => {})
+  }, [action.id])
+
   // Load prior conversation history for this member on mount
   useEffect(() => {
     if (!c.memberEmail) return
