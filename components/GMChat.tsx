@@ -232,21 +232,7 @@ export default function GMChat({
     setInput('')
     setIsThinking(true)
 
-    if (isDemo) {
-      // Demo mode: fake response after delay
-      await new Promise(r => setTimeout(r, 1200))
-      const demoReply: GMChatMessage = {
-        id: `demo-reply-${Date.now()}`,
-        role: 'assistant',
-        content: `This is a demo — in your connected gym, I'd analyze your actual PushPress data and answer that directly. Sign up to connect your gym and ask me anything.`,
-        route: 'direct_answer',
-        createdAt: new Date().toISOString(),
-      }
-      setMessages(prev => [...prev, demoReply])
-      setIsThinking(false)
-      return
-    }
-
+    // Demo mode hits the real API with PushPress East credentials — no fake responses
     try {
       const res = await fetch('/api/gm/chat', {
         method: 'POST',
