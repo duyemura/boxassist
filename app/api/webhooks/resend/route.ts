@@ -112,14 +112,22 @@ async function handleEmailReceived(data: any) {
 
   const actionId = match[1]
 
-  // Resend's email.received webhook only sends metadata — body must be fetched separately
-  let text = data.text ?? data.html ?? ''
-  if (!text && emailId) {
+  // Resend's email.received webhook only sends metadata — body is NOT in the payload.
+  // Must call resend.emails.receiving.get(emailId) — the receiving-specific endpoint.
+  // DO NOT use resend.emails.get() — that's for outbound emails and returns 404 here.
+  let text = data.text ?? ''
+  let html = data.html ?? ''
+  if (!text && !html && emailId) {
     try {
       const resend = new Resend(process.env.RESEND_API_KEY!)
-      const { data: emailData } = await resend.emails.get(emailId)
-      text = (emailData as any)?.text ?? (emailData as any)?.html ?? ''
-      console.log(`email.received: fetched body via get(${emailId}), length=${text.length}`)
+      const { data: emailData, error: fetchError } = await resend.emails.receiving.get(emailId)
+      if (fetchError) {
+        console.error(`email.received: receiving.get(${emailId}) error:`, fetchError)
+      } else {
+        text = (emailData as any)?.text ?? ''
+        html = (emailData as any)?.html ?? ''
+        console.log(`email.received: fetched body via receiving.get(${emailId}), text_len=${text.length} html_len=${html.length}`)
+      }
     } catch (err) {
       console.error('email.received: failed to fetch email body:', err)
     }
