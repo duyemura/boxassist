@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { Webhook } from 'svix'
 import { handleInboundReply } from '@/lib/reply-agent'
 import { createClient } from '@supabase/supabase-js'
 
@@ -20,31 +21,45 @@ const supabase = createClient(
  *   email.bounced    → marks member email invalid
  *   email.complained → marks member unsubscribed
  *   email.failed     → logs failure
+ *
+ * Signature verification: set RESEND_SENDING_WEBHOOK_SECRET to the
+ * whsec_... value from Resend → Webhooks (the sending/events webhook,
+ * distinct from the inbound receiving webhook secret).
  */
-// Simple in-memory rate limit: max 60 requests per minute per IP
-const rateLimitMap = new Map<string, { count: number; reset: number }>()
-
 export async function POST(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  const now = Date.now()
-  const window = 60_000
-  const limit = 60
-
-  const entry = rateLimitMap.get(ip)
-  if (!entry || now > entry.reset) {
-    rateLimitMap.set(ip, { count: 1, reset: now + window })
-  } else {
-    entry.count++
-    if (entry.count > limit) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
-    }
-  }
-
+  const rawBody = await req.text()
   let body: any
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+
+  // ── Svix signature verification ──────────────────────────────────────────
+  const signingSecret = process.env.RESEND_SENDING_WEBHOOK_SECRET
+  if (signingSecret) {
+    const svixId        = req.headers.get('svix-id') ?? ''
+    const svixTimestamp = req.headers.get('svix-timestamp') ?? ''
+    const svixSignature = req.headers.get('svix-signature') ?? ''
+
+    if (!svixId || !svixTimestamp || !svixSignature) {
+      console.warn('resend webhook: missing svix headers — rejecting')
+      return NextResponse.json({ error: 'Missing signature headers' }, { status: 400 })
+    }
+
+    try {
+      const wh = new Webhook(signingSecret)
+      body = wh.verify(rawBody, {
+        'svix-id':        svixId,
+        'svix-timestamp': svixTimestamp,
+        'svix-signature': svixSignature,
+      })
+    } catch (err) {
+      console.error('resend webhook: signature verification failed', err)
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+  } else {
+    console.warn('resend webhook: RESEND_SENDING_WEBHOOK_SECRET not set, skipping verification')
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+    }
   }
 
   const eventType: string = body.type ?? ''
