@@ -61,6 +61,20 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ReactNode; href?: 
   },
 ]
 
+// Extra nav links (non-section, full page)
+const EXTRA_NAV_LINKS = [
+  {
+    label: 'Threads',
+    href: '/threads',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M3 5h14M3 10h10M3 15h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".7"/>
+        <circle cx="16" cy="15" r="2.5" fill="currentColor" opacity=".5"/>
+      </svg>
+    ),
+  },
+]
+
 export default function AppShell({
   isDemo,
   isSandboxDemo,
@@ -176,6 +190,20 @@ export default function AppShell({
               </button>
             )
           })}
+
+          {/* Divider + extra links */}
+          <div className="mx-4 my-2 border-t border-white/10" />
+          {EXTRA_NAV_LINKS.map(link => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex items-center gap-3 px-3 mx-2 py-2.5 w-[calc(100%-16px)] hover:bg-white/5 transition-colors"
+              style={{ borderRadius: 4 }}
+            >
+              <span className="flex-shrink-0" style={{ color: '#6B7280' }}>{link.icon}</span>
+              <span className="text-sm font-medium" style={{ color: '#6B7280' }}>{link.label}</span>
+            </Link>
+          ))}
         </nav>
 
         {/* Center + Right — stacked vertically so statsBar spans both */}
