@@ -14,11 +14,12 @@ export async function GET(
   const { token } = params
   if (!token) return NextResponse.json({ error: 'No token' }, { status: 400 })
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('agent_conversations')
-    .select('id, role, text, member_name, created_at')
+    .select('id, role, text, member_name, created_at', { count: 'exact' })
     .eq('action_id', token)
     .order('created_at', { ascending: true })
+    .limit(100)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
