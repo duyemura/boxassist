@@ -223,6 +223,8 @@ function DashboardContent() {
   const [running, setRunning] = useState(false)
   const [runResult, setRunResult] = useState<any>(null)
   const [actionStates, setActionStates] = useState<Record<string, 'pending' | 'approving' | 'approved' | 'dismissed' | 'sent'>>({})
+  // Tracks replyTokens for actions sent this session — lets panel show thread on reopen
+  const [replyTokenMap, setReplyTokenMap] = useState<Record<string, string>>({})
   const [demoToast, setDemoToast] = useState<string | null>(null)
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -422,12 +424,21 @@ function DashboardContent() {
       body: JSON.stringify({ message, subject, toEmail: memberEmail }),
     })
     const data = await res.json()
-    // Mark the selected action as sent so it shows differently in the list
-    // but don't dismiss — keep it selectable to view the live thread
-    if (selectedAction) {
+    const replyToken = data?.replyToken ?? null
+
+    if (selectedAction && replyToken) {
+      // Mark as sent in list
       setActionStates(prev => ({ ...prev, [selectedAction.id]: 'sent' }))
+      // Patch the replyToken into the action's content so reopening the panel
+      // can find the existing thread — survives panel close/reopen in this session
+      setSelectedAction(prev => prev ? {
+        ...prev,
+        content: { ...prev.content, _replyToken: replyToken }
+      } : prev)
+      // Also store in replyTokenMap so agentActions list picks it up on reopen
+      setReplyTokenMap(prev => ({ ...prev, [selectedAction.id]: replyToken }))
     }
-    return data?.replyToken ?? null
+    return replyToken
   }
 
   const handleSkip = async (actionId: string) => {
@@ -480,6 +491,11 @@ function DashboardContent() {
   const uniqueActions = allActions
     .filter((a, i, self) => i === self.findIndex(b => b.content?.memberId === a.content?.memberId))
     .filter(a => actionStates[a.id] !== 'dismissed')
+    // Merge in any replyTokens from sends this session so panel can find the thread on reopen
+    .map(a => replyTokenMap[a.id]
+      ? { ...a, content: { ...a.content, _replyToken: replyTokenMap[a.id] } }
+      : a
+    )
 
   const gymName = isDemo
     ? 'PushPress East'

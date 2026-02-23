@@ -421,21 +421,22 @@ function MemberActionPanel({
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  // On mount: if this action already has a live thread (was sent before panel opened),
-  // load it immediately so re-opening the panel shows the full conversation
+  // On mount: check if this action was already sent (has a thread in DB).
+  // If so, skip the compose view entirely and show the existing conversation.
+  // This prevents the "send again by accident" problem when reopening a panel.
   useEffect(() => {
     const existingToken = (action.content as any)?._replyToken
     if (!existingToken) return
-    // Load the thread and start polling if no decision yet
     fetch(`/api/conversations/${existingToken}`)
       .then(r => r.json())
       .then(data => {
         if (data.messages?.length) {
           setLiveThread(data.messages)
           setLiveReplyToken(existingToken)
+          // Mark as already sent — this flips the panel to thread view, hiding compose
           setRealSent(true)
-          setRealSentTo((action.content as any)?.memberEmail ?? '')
-          // Keep polling only if no decision yet
+          setRealSentTo((action.content as any)?.memberEmail ?? c.memberEmail ?? '')
+          // Keep polling only if no agent decision yet
           const hasDecision = data.messages.some((m: any) => m.role === 'agent_decision')
           if (!hasDecision) startLiveThread(existingToken)
         }
