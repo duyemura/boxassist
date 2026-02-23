@@ -65,6 +65,12 @@ export async function handleInboundReply({
     return
   }
 
+  // If already resolved, don't re-process — prevents ghost replies on closed threads
+  if (action.resolved_at) {
+    console.log(`handleInboundReply: action ${action.id} already resolved at ${action.resolved_at}, skipping`)
+    return
+  }
+
   // actionDbId = the real UUID for agent_actions updates
   // actionId = the replyToken used for agent_conversations lookup
   const actionDbId: string = action.id
@@ -81,16 +87,20 @@ export async function handleInboundReply({
 
   console.log(`handleInboundReply: found action ${actionDbId} (token=${actionId}), automationLevel=${automationLevel}`)
 
-  // Load conversation history — keyed by replyToken (actionId)
+  // Load conversation history — exclude agent_decision rows (internal metadata, not real messages)
   const { data: history } = await supabaseAdmin
     .from('agent_conversations')
     .select('role, text, created_at')
     .eq('action_id', actionId)
+    .not('role', 'eq', 'agent_decision')  // never feed decision rows back to Claude
     .order('created_at', { ascending: true })
+    .limit(50)
 
   const conversation: ConversationMessage[] = [
     { role: 'outbound', text: originalMessage, timestamp: action.created_at },
-    ...(history ?? []).map((h: any) => ({ role: h.role, text: h.text, timestamp: h.created_at })),
+    ...(history ?? [])
+      .filter((h: any) => h.text !== originalMessage) // dedupe — outbound already added above
+      .map((h: any) => ({ role: h.role, text: h.text, timestamp: h.created_at })),
     { role: 'inbound', text: memberReply, timestamp: new Date().toISOString() },
   ]
 

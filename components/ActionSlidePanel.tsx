@@ -29,7 +29,7 @@ interface ActionSlidePanelProps {
   humanizing?: boolean
   gmailConnected?: boolean
   onSend: (id: string, name: string, message: string) => void
-  onRealDemoSend: (message: string, subject: string, memberName: string, memberEmail: string) => Promise<string | null>
+  onRealDemoSend: (message: string, subject: string, memberName: string, memberEmail: string, automationLevel: string) => Promise<string | null>
   onSkip: (id: string) => void
 }
 
@@ -361,7 +361,7 @@ function MemberActionPanel({
     // In sandbox demo: actually send the email so they experience the real loop
     if (isSandboxDemo && sendTo) {
       try {
-        const token = await onRealDemoSend(draftMessage, c.messageSubject, c.memberName, sendTo)
+        const token = await onRealDemoSend(draftMessage, c.messageSubject, c.memberName, sendTo, sendMode === "auto" ? "full_auto" : sendMode === "smart" ? "smart" : "draft_only")
         if (token) startLiveThread(token)
       } catch {}
     }
@@ -459,7 +459,7 @@ function MemberActionPanel({
     if (isDemo && isSandboxDemo) {
       setRealSending(true)
       try {
-        const token = await onRealDemoSend(draftMessage, c.messageSubject, c.memberName, sendTo)
+        const token = await onRealDemoSend(draftMessage, c.messageSubject, c.memberName, sendTo, sendMode === "auto" ? "full_auto" : sendMode === "smart" ? "smart" : "draft_only")
         setRealSent(true)
         setRealSentTo(sendTo)
         if (token) startLiveThread(token)

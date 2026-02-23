@@ -24,11 +24,13 @@ export async function POST(req: NextRequest) {
   let message = ''
   let subject = 'Checking in on you'
   let toEmail = visitorEmail
+  let automationLevel = 'draft_only'  // default: manual send = no auto-reply
   try {
     const body = await req.json()
     message = body?.message || ''
     subject = body?.subject || subject
-    if (body?.toEmail) toEmail = body.toEmail  // allow override from send field
+    if (body?.toEmail) toEmail = body.toEmail
+    if (body?.automationLevel) automationLevel = body.automationLevel
   } catch {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
   }
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest) {
           _replyToken: replyToken,
           _gymId: 'demo',
           _gymName: 'PushPress East (Demo)',
-          _automationLevel: 'full_auto',
+          _automationLevel: automationLevel,
           _playbookName: 'At-Risk Re-engagement',
         },
       })

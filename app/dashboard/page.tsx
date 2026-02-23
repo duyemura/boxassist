@@ -417,11 +417,11 @@ function DashboardContent() {
     } catch {}
   }
 
-  const handleRealDemoSend = async (message: string, subject: string, memberName: string, memberEmail: string): Promise<string | null> => {
+  const handleRealDemoSend = async (message: string, subject: string, memberName: string, memberEmail: string, automationLevel = 'draft_only'): Promise<string | null> => {
     const res = await fetch('/api/demo/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, subject, toEmail: memberEmail }),
+      body: JSON.stringify({ message, subject, toEmail: memberEmail, automationLevel }),
     })
     const data = await res.json()
     const replyToken = data?.replyToken ?? null
