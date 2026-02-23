@@ -232,7 +232,9 @@ function DashboardContent() {
   const selectActionWithHumanizer = async (action: ActionCard | null) => {
     if (!action || !action.draftedMessage) { setSelectedAction(action); return }
     setSelectedAction(action)
-    // Silently humanize in background — update draft when done
+    // Only humanize in sandbox demo (where real sends happen) or production
+    // Skip in static demo mode — saves Claude calls when just browsing
+    if (isDemoParam && !isSandboxDemo) return
     try {
       setHumanizing(true)
       const res = await fetch('/api/humanize-message', {

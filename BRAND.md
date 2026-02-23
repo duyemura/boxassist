@@ -269,3 +269,17 @@ Used above content blocks inside panels (SITUATION, DRAFTED MESSAGE, PLAYBOOKS U
 - ❌ No green/yellow/coral for text on white bg — illegible
 - ❌ No hover background change on primary buttons — use `hover:opacity-80` only
 - ❌ No `cursor-not-allowed` alone — pair with `disabled:opacity-50`
+
+---
+
+## Pending DB migrations (run in Supabase SQL editor)
+
+```sql
+-- Index for by-email conversation lookups
+CREATE INDEX IF NOT EXISTS agent_conversations_member_email_idx 
+  ON agent_conversations(member_email);
+
+-- Index for gym_id + role queries
+CREATE INDEX IF NOT EXISTS agent_conversations_gym_id_role_idx
+  ON agent_conversations(gym_id, role);
+```

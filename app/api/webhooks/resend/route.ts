@@ -20,7 +20,25 @@ const supabase = createClient(
  *   email.complained → marks member unsubscribed
  *   email.failed     → logs failure
  */
+// Simple in-memory rate limit: max 60 requests per minute per IP
+const rateLimitMap = new Map<string, { count: number; reset: number }>()
+
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const now = Date.now()
+  const window = 60_000
+  const limit = 60
+
+  const entry = rateLimitMap.get(ip)
+  if (!entry || now > entry.reset) {
+    rateLimitMap.set(ip, { count: 1, reset: now + window })
+  } else {
+    entry.count++
+    if (entry.count > limit) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    }
+  }
+
   let body: any
   try {
     body = await req.json()

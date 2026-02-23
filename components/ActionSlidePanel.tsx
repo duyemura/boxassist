@@ -395,12 +395,19 @@ function MemberActionPanel({
 
   const startLiveThread = (token: string) => {
     setLiveReplyToken(token)
-    // Poll immediately, then every 3s
     const fetchThread = async () => {
       try {
         const res = await fetch(`/api/conversations/${token}`)
         const data = await res.json()
-        if (data.messages) setLiveThread(data.messages)
+        if (data.messages) {
+          setLiveThread(data.messages)
+          // Stop polling once agent has made a decision (close/escalate/reply)
+          const hasDecision = data.messages.some((m: any) => m.role === 'agent_decision')
+          if (hasDecision && pollRef.current) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+          }
+        }
       } catch {}
     }
     fetchThread()

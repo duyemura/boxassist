@@ -74,6 +74,7 @@ export async function handleInboundReply({
   // Demo actions embed context in content with _ prefix
   const isDemo = content._isDemo === true
   const gymId = content._gymId ?? 'demo'
+  const gymName = content._gymName ?? 'the gym'
   const automationLevel = content._automationLevel ?? 'full_auto'
   const playbookGoal = content.recommendedAction ?? 'Re-engage the member and ensure they feel supported'
   const originalMessage = content.draftedMessage ?? ''
@@ -105,7 +106,7 @@ export async function handleInboundReply({
 
   // Ask Claude to evaluate and decide
   console.log(`handleInboundReply: calling evaluateReply for ${actionDbId}`)
-  const decision = await evaluateReply({ conversation, playbookGoal, memberName, automationLevel })
+  const decision = await evaluateReply({ conversation, playbookGoal, memberName, gymName, automationLevel })
   console.log(`handleInboundReply: decision=${JSON.stringify(decision)}`)
 
   // Store the decision in conversations (keyed by replyToken)
@@ -210,18 +211,20 @@ async function evaluateReply({
   conversation,
   playbookGoal,
   memberName,
+  gymName,
   automationLevel,
 }: {
   conversation: ConversationMessage[]
   playbookGoal: string
   memberName: string
+  gymName: string
   automationLevel: string
 }): Promise<ReplyDecision> {
   const convoText = conversation
     .map(m => `[${m.role.toUpperCase()}]: ${m.text}`)
     .join('\n\n')
 
-  const system = `You are a gym retention agent managing member outreach on behalf of a gym owner.
+  const system = `You are a retention agent for ${gymName}, writing on behalf of the gym owner/coach.
 
 Your job: read the conversation and decide what to do next.
 
