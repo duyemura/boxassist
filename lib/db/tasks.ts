@@ -9,6 +9,7 @@ import type {
   UpdateTaskStatusOpts,
   AppendConversationParams,
 } from '../types/agents'
+import type { GymInsight } from '../agents/GMAgent'
 
 // Fixed UUID for the PushPress East demo gym.
 // Corresponds to the row inserted by migration 001_phase1_agent_tasks.sql.
@@ -196,4 +197,33 @@ export async function getOrCreateTaskForAction(action: {
     console.error('getOrCreateTaskForAction: unexpected error', err)
     return null
   }
+}
+
+// ============================================================
+// createInsightTask
+// Creates an agent_task from a GMAgent GymInsight.
+// Called by GMAgent.runAnalysis and GMAgent.handleEvent.
+// ============================================================
+export async function createInsightTask(params: {
+  gymId: string
+  insight: GymInsight
+  causationEventId?: string
+}): Promise<AgentTask> {
+  return createTask({
+    gymId: params.gymId,
+    assignedAgent: 'retention',
+    taskType: params.insight.type,
+    memberEmail: params.insight.memberEmail,
+    memberName: params.insight.memberName,
+    goal: params.insight.title,
+    context: {
+      insightType: params.insight.type,
+      insightDetail: params.insight.detail,
+      estimatedImpact: params.insight.estimatedImpact,
+      draftMessage: params.insight.draftMessage,
+      recommendedAction: params.insight.recommendedAction,
+      priority: params.insight.priority,
+    },
+    requiresApproval: true,  // owner reviews all GM Agent insights
+  })
 }

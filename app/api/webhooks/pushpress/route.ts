@@ -2,6 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { runEventAgentWithMCP } from '@/lib/claude'
 import { decrypt } from '@/lib/encrypt'
+import { GMAgent } from '@/lib/agents/GMAgent'
+import { createInsightTask } from '@/lib/db/tasks'
+import type { AgentDeps } from '@/lib/agents/BaseAgent'
+
+// Minimal AgentDeps for GMAgent in webhook context (no mailer needed)
+function buildWebhookAgentDeps(): AgentDeps {
+  return {
+    db: {
+      getTask: async () => null,
+      updateTaskStatus: async () => {},
+      appendConversation: async () => {},
+      getConversationHistory: async () => [],
+      createOutboundMessage: async () => ({ id: '' } as any),
+      updateOutboundMessageStatus: async () => {},
+    },
+    events: { publishEvent: async () => '' },
+    mailer: { sendEmail: async () => ({ id: '' }) },
+    claude: { evaluate: async () => '' },
+  }
+}
 
 // PushPress webhook event types (canonical names from SDK)
 type PPEventType =
@@ -144,6 +164,19 @@ async function processWebhookAsync(rawBody: string) {
       })
       .eq('id', webhookEvent.id)
       .catch(() => {})
+  }
+
+  // ── GM Agent: react to important events immediately ─────────────────────────
+  // Wrapped in try/catch — webhook handler must never throw
+  try {
+    const gmAgent = new GMAgent(buildWebhookAgentDeps())
+    gmAgent.setCreateInsightTask(createInsightTask)
+    await gmAgent.handleEvent(gym.id, {
+      type: eventType,
+      data: eventData,
+    })
+  } catch (err) {
+    console.error('[webhook] GMAgent.handleEvent error:', err)
   }
 
   console.log(`[webhook] ${eventType} done — ${runsTriggered} agents fired`)
