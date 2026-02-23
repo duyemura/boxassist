@@ -303,14 +303,76 @@ async function sendReply({
   // Fall back to Resend
   if (!sent) {
     const replyTo = `reply+${actionId}@lunovoria.resend.app`
+    const gymName = content._gymName ?? 'GymAgents'
+    const coachName = content._coachName ?? null
+
+    // Convert reply text to HTML paragraphs — skip blank lines to avoid ghost spacing
+    const htmlBody = reply
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => `<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#111827;">${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`)
+      .join('\n')
+
     await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL ?? 'GymAgents <noreply@lunovoria.resend.app>',
       replyTo,
       to: memberEmail,
       subject,
-      html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 20px;line-height:1.6;color:#333;">
-        ${reply.split('\n').map(p => `<p style="margin:0 0 12px">${p}</p>`).join('')}
-      </div>`,
+      html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f8f9fb;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8f9fb;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;max-width:520px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 28px 16px;border-bottom:2px solid #0063FF;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="width:24px;height:24px;background:#0063FF;border-radius:2px;text-align:center;vertical-align:middle;">
+                    <span style="color:#ffffff;font-weight:700;font-size:12px;">G</span>
+                  </td>
+                  <td style="padding-left:8px;">
+                    <span style="font-size:12px;font-weight:600;color:#374151;">GymAgents</span>
+                    <span style="font-size:12px;color:#9ca3af;"> &middot; ${gymName}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:28px 28px 24px;">
+              ${htmlBody}
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 28px 24px;border-top:1px solid #f3f4f6;">
+              <p style="font-size:11px;color:#9ca3af;line-height:1.6;margin:0 0 8px;">
+                Reply to this email and the agent will continue the conversation automatically.
+              </p>
+              <p style="font-size:11px;color:#9ca3af;margin:0;">
+                <a href="https://app-orcin-one-70.vercel.app/login" style="color:#0063FF;text-decoration:none;font-weight:600;">Connect your gym &rarr;</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
     })
   }
 
