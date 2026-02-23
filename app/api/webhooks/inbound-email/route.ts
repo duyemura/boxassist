@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { handleInboundReply } from '@/lib/reply-agent'
+import { RetentionAgent } from '@/lib/agents/RetentionAgent'
+import * as dbTasks from '@/lib/db/tasks'
+import * as dbEvents from '@/lib/db/events'
+import * as dbCommands from '@/lib/db/commands'
+import Anthropic from '@anthropic-ai/sdk'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
+const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 /**
  * Inbound email webhook — handles Resend inbound format.
@@ -113,6 +119,78 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error(`inbound-email: handleInboundReply FAILED:`, err?.message)
   }
+
+  // ── Phase 2: Also run RetentionAgent (dual-running until Phase 3) ──────────
+  // We need the shadow task ID to route the reply to the agent.
+  // actionId here is the replyToken — look up the shadow task by legacy_action_id or reply_token.
+  try {
+    // Look up the shadow task that was created during Phase 1 dual-write
+    const { data: taskRow } = await (async () => {
+      const { createClient } = await import('@supabase/supabase-js')
+      const sb = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } },
+      )
+      return sb
+        .from('agent_tasks')
+        .select('id, gym_id')
+        .or(`legacy_action_id.eq.${actionId}`)
+        .eq('assigned_agent', 'retention')
+        .single()
+    })()
+
+    if (taskRow?.id) {
+      const retentionAgent = new RetentionAgent({
+        db: {
+          getTask: dbTasks.getTask,
+          updateTaskStatus: dbTasks.updateTaskStatus,
+          appendConversation: dbTasks.appendConversation,
+          getConversationHistory: dbTasks.getConversationHistory,
+          createOutboundMessage: dbCommands.createOutboundMessage,
+          updateOutboundMessageStatus: dbCommands.updateOutboundMessageStatus,
+        },
+        events: {
+          publishEvent: dbEvents.publishEvent,
+        },
+        mailer: {
+          sendEmail: async (params) => {
+            const result = await resend.emails.send({
+              from: process.env.RESEND_FROM_EMAIL ?? 'GymAgents <noreply@lunovoria.resend.app>',
+              to: params.to,
+              subject: params.subject,
+              html: params.html,
+              ...(params.replyTo ? { replyTo: params.replyTo } : {}),
+            })
+            return { id: result.data?.id ?? 'unknown' }
+          },
+        },
+        claude: {
+          evaluate: async (system, prompt) => {
+            const response = await anthropicClient.messages.create({
+              model: 'claude-sonnet-4-5',
+              max_tokens: 600,
+              system,
+              messages: [{ role: 'user', content: prompt }],
+            })
+            return (response.content[0] as any).text?.trim() ?? ''
+          },
+        },
+      })
+
+      await retentionAgent.handleReply({
+        taskId: taskRow.id,
+        memberEmail: fromEmail,
+        replyContent: cleanText.trim(),
+        gymId: taskRow.gym_id,
+      })
+      console.log(`inbound-email: RetentionAgent.handleReply completed for task ${taskRow.id}`)
+    }
+  } catch (retentionErr: any) {
+    // Log but don't fail the webhook — handleInboundReply already ran
+    console.error(`inbound-email: RetentionAgent FAILED (non-fatal):`, retentionErr?.message)
+  }
+  // ── End Phase 2 ────────────────────────────────────────────────────────────
 
   return NextResponse.json({ ok: true, processed: true, actionId, from: fromEmail })
 }

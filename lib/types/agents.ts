@@ -197,6 +197,26 @@ export interface TaskEvaluation {
 }
 
 // ------------------------------------
+// outbound_messages INSERT
+// ------------------------------------
+
+export interface OutboundMessageInsert {
+  gym_id: string
+  task_id: string | null
+  sent_by_agent: string
+  channel: MessageChannel
+  recipient_email?: string | null
+  recipient_phone?: string | null
+  recipient_name?: string | null
+  subject?: string | null
+  body: string
+  reply_token?: string | null
+  status: MessageStatus
+  provider?: MessageProvider | null
+  [key: string]: unknown
+}
+
+// ------------------------------------
 // Helpers used by db helpers
 // ------------------------------------
 
