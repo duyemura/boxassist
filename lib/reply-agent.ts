@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from './supabase'
 import { sendGmailMessage } from './gmail'
 import { Resend } from 'resend'
+import { getOrCreateTaskForAction, appendConversation, updateTaskStatus, DEMO_GYM_ID } from './db/tasks'
+import { publishEvent } from './db/events'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 const resend = new Resend(process.env.RESEND_API_KEY!)
@@ -104,6 +106,40 @@ export async function handleInboundReply({
     { role: 'inbound', text: memberReply, timestamp: new Date().toISOString() },
   ]
 
+  // ── Phase 1 dual-write: find/create shadow task + publish MemberReplyReceived event ──
+  let shadowTaskId: string | null = null
+  try {
+    shadowTaskId = await getOrCreateTaskForAction(action)
+    if (shadowTaskId) {
+      // Append each prior outbound to task_conversations if this is the first inbound
+      // (backfill script will handle bulk; here we just ensure the inbound message is captured)
+      const resolvedGymId = (gymId === 'demo' || !gymId) ? DEMO_GYM_ID : gymId
+      await appendConversation(shadowTaskId, {
+        gymId: resolvedGymId,
+        role: 'member',
+        content: memberReply,
+        agentName: undefined,
+      })
+      await publishEvent({
+        gymId: resolvedGymId,
+        eventType: 'MemberReplyReceived',
+        aggregateId: shadowTaskId,
+        aggregateType: 'task',
+        payload: {
+          taskId: shadowTaskId,
+          legacyActionId: action.id,
+          memberEmail,
+          memberName,
+          replyText: memberReply,
+        },
+        metadata: { source: 'reply-agent', actionId },
+      })
+    }
+  } catch (dualWriteErr) {
+    console.error('handleInboundReply: dual-write (inbound) error — continuing', dualWriteErr)
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Store inbound reply
   await supabaseAdmin.from('agent_conversations').insert({
     action_id: actionId,
@@ -129,10 +165,34 @@ export async function handleInboundReply({
     member_name: memberName,
   })
 
+  // ── Phase 1 dual-write: store decision in task_conversations ──
+  if (shadowTaskId) {
+    try {
+      const resolvedGymId = (gymId === 'demo' || !gymId) ? DEMO_GYM_ID : gymId
+      await appendConversation(shadowTaskId, {
+        gymId: resolvedGymId,
+        role: 'system',
+        content: `Agent decision: ${decision.action} (score=${decision.outcomeScore})`,
+        agentName: 'retention',
+        evaluation: {
+          reasoning: (decision as any).reasoning,
+          action: decision.action,
+          outcomeScore: decision.outcomeScore,
+          resolved: decision.resolved,
+          scoreReason: decision.scoreReason,
+          outcome: (decision as any).outcome,
+        },
+      })
+    } catch (dualWriteErr) {
+      console.error('handleInboundReply: dual-write (decision) error — continuing', dualWriteErr)
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
+
   if (decision.action === 'close' || decision.resolved) {
     // If there's a closing reply (e.g. "Can't wait to see you Thursday!"), send it first
     if (decision.reply && automationLevel !== 'draft_only') {
-      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content })
+      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content, shadowTaskId })
     }
     // Then close the action
     await supabaseAdmin
@@ -144,6 +204,19 @@ export async function handleInboundReply({
         resolved_at: new Date().toISOString(),
       })
       .eq('id', actionDbId)
+    // ── Phase 1 dual-write: resolve shadow task ──
+    if (shadowTaskId) {
+      try {
+        await updateTaskStatus(shadowTaskId, 'resolved', {
+          outcome: (decision as any).outcome ?? 'engaged',
+          outcomeScore: decision.outcomeScore,
+          outcomeReason: decision.scoreReason,
+        })
+      } catch (dualWriteErr) {
+        console.error('handleInboundReply: dual-write (close task) error — continuing', dualWriteErr)
+      }
+    }
+    // ────────────────────────────────────────────
     console.log(`handleInboundReply: closed action ${actionDbId} score=${decision.outcomeScore}`)
     return
   }
@@ -153,6 +226,18 @@ export async function handleInboundReply({
       .from('agent_actions')
       .update({ needs_review: true, review_reason: decision.scoreReason })
       .eq('id', actionDbId)
+    // ── Phase 1 dual-write: escalate shadow task ──
+    if (shadowTaskId) {
+      try {
+        await updateTaskStatus(shadowTaskId, 'escalated', {
+          outcome: 'escalated',
+          outcomeReason: decision.scoreReason,
+        })
+      } catch (dualWriteErr) {
+        console.error('handleInboundReply: dual-write (escalate task) error — continuing', dualWriteErr)
+      }
+    }
+    // ─────────────────────────────────────────────
     console.log(`handleInboundReply: escalated action ${actionDbId}`)
     return
   }
@@ -160,7 +245,7 @@ export async function handleInboundReply({
   if (decision.action === 'reopen') {
     // Acknowledge the new context, then create a new action for tracking
     if (decision.reply) {
-      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content })
+      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content, shadowTaskId })
     }
 
     // Create a new agent_action to track the new task
@@ -204,10 +289,10 @@ export async function handleInboundReply({
 
   if (decision.action === 'reply' && decision.reply) {
     if (automationLevel === 'full_auto') {
-      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content })
+      await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content, shadowTaskId })
     } else if (automationLevel === 'smart') {
       if (decision.outcomeScore >= 60) {
-        await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content })
+        await sendReply({ actionId, actionDbId, gymId, memberEmail, memberName, reply: decision.reply, content, shadowTaskId })
       } else {
         await queueReplyForApproval({ actionDbId, reply: decision.reply, reason: decision.scoreReason })
       }
@@ -314,7 +399,7 @@ Think through what's happening first, then produce ONLY valid JSON (no markdown 
 }
 
 async function sendReply({
-  actionId, actionDbId, gymId, memberEmail, memberName, reply, content,
+  actionId, actionDbId, gymId, memberEmail, memberName, reply, content, shadowTaskId,
 }: {
   actionId: string      // replyToken — for email address + conversations table
   actionDbId: string    // DB UUID — for agent_actions updates
@@ -323,6 +408,7 @@ async function sendReply({
   memberName: string
   reply: string
   content: any
+  shadowTaskId?: string | null
 }) {
   const subject = `Re: ${content.messageSubject ?? 'Checking in'}`
   let sent = false
@@ -418,6 +504,39 @@ async function sendReply({
     member_email: memberEmail,
     member_name: memberName,
   })
+
+  // ── Phase 1 dual-write: outbound_messages + task_conversations ──
+  try {
+    const resolvedGymId = (gymId === 'demo' || !gymId) ? DEMO_GYM_ID : gymId
+
+    // outbound_messages row
+    await supabaseAdmin.from('outbound_messages').insert({
+      gym_id: resolvedGymId,
+      task_id: shadowTaskId ?? null,
+      sent_by_agent: 'retention',
+      channel: 'email',
+      recipient_email: memberEmail,
+      recipient_name: memberName,
+      subject,
+      body: reply,
+      reply_token: actionId,
+      status: 'sent',
+      provider: sent ? 'gmail' : 'resend',
+    })
+
+    // agent reply row in task_conversations
+    if (shadowTaskId) {
+      await appendConversation(shadowTaskId, {
+        gymId: resolvedGymId,
+        role: 'agent',
+        content: reply,
+        agentName: 'retention',
+      })
+    }
+  } catch (dualWriteErr) {
+    console.error('sendReply: dual-write (outbound) error — continuing', dualWriteErr)
+  }
+  // ───────────────────────────────────────────────────────────────
 }
 
 async function queueReplyForApproval({ actionDbId, reply, reason }: { actionDbId: string; reply: string; reason: string }) {
