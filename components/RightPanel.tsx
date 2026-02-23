@@ -37,6 +37,7 @@ interface RightPanelProps {
   scanning?: boolean
   memberCount?: number
   runResult?: any
+  actionStates?: Record<string, string>
   onSelectAction: (action: ActionCard) => void
   onSelectRun: (run: any) => void
   onScanNow?: () => void
@@ -67,7 +68,7 @@ function formatRunDate(dateStr: string): string {
 
 export default function RightPanel({
   agent, actions, data, isDemo, isSandboxDemo,
-  scanning, memberCount, runResult,
+  scanning, memberCount, runResult, actionStates,
   onSelectAction, onSelectRun, onScanNow,
 }: RightPanelProps) {
   const [runHistory, setRunHistory] = useState<any[]>([])
@@ -115,6 +116,10 @@ export default function RightPanel({
           <div className="space-y-px -mx-2">
             {actions.map(action => {
               const isYou = action.content?.memberId === 'demo-visitor'
+              const actionState = actionStates?.[action.id]
+              const isSent = actionState === 'sent'
+              const isDismissed = actionState === 'dismissed'
+              if (isDismissed) return null
               return (
                 <button
                   key={action.id}
@@ -124,14 +129,17 @@ export default function RightPanel({
                   onMouseEnter={e => { if (!isYou) (e.currentTarget as HTMLElement).style.backgroundColor = '#F9FAFB' }}
                   onMouseLeave={e => { if (!isYou) (e.currentTarget as HTMLElement).style.backgroundColor = '' }}
                 >
-                  <RiskDot level={action.content.riskLevel} />
+                  {isSent
+                    ? <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 inline-block mt-0.5" style={{ backgroundColor: '#16A34A' }} />
+                    : <RiskDot level={action.content.riskLevel} />
+                  }
                   <span className="flex-1 min-w-0">
                     <span className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold text-gray-900">{action.content.memberName}</span>
+                      <span className={`text-xs font-semibold ${isSent ? 'text-gray-400' : 'text-gray-900'}`}>{action.content.memberName}</span>
                       {isYou && <span className="text-[10px] font-bold tracking-widest uppercase px-1 py-0.5" style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}>you</span>}
+                      {isSent && <span className="text-[10px] font-medium" style={{ color: '#16A34A' }}>Sent · watching</span>}
                     </span>
-                    <span className="text-xs text-gray-400 block leading-snug mt-0.5">{action.content.riskReason}</span>
-                    {/* playbook tag removed from list — shown in slide panel instead */}
+                    {!isSent && <span className="text-xs text-gray-400 block leading-snug mt-0.5">{action.content.riskReason}</span>}
                   </span>
                   <span className="text-[10px] text-gray-300 group-hover:text-gray-500 flex-shrink-0 mt-0.5 transition-colors">→</span>
                 </button>

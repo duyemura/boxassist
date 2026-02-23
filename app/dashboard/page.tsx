@@ -222,7 +222,7 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [runResult, setRunResult] = useState<any>(null)
-  const [actionStates, setActionStates] = useState<Record<string, 'pending' | 'approving' | 'approved' | 'dismissed'>>({})
+  const [actionStates, setActionStates] = useState<Record<string, 'pending' | 'approving' | 'approved' | 'dismissed' | 'sent'>>({})
   const [demoToast, setDemoToast] = useState<string | null>(null)
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -422,6 +422,11 @@ function DashboardContent() {
       body: JSON.stringify({ message, subject, toEmail: memberEmail }),
     })
     const data = await res.json()
+    // Mark the selected action as sent so it shows differently in the list
+    // but don't dismiss — keep it selectable to view the live thread
+    if (selectedAction) {
+      setActionStates(prev => ({ ...prev, [selectedAction.id]: 'sent' }))
+    }
     return data?.replyToken ?? null
   }
 
@@ -855,6 +860,7 @@ function DashboardContent() {
             scanning={running}
             memberCount={memberCount}
             runResult={runResult}
+            actionStates={actionStates}
             onSelectAction={selectActionWithHumanizer}
             onSelectRun={setSelectedRun}
             onScanNow={runScan}
