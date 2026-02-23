@@ -44,11 +44,11 @@ export async function saveKPISnapshot(
     .from('gym_kpi_snapshots')
     .insert({
       gym_id: gymId,
-      active_members: snapshot.activeMembersCount ?? null,
+      active_members: snapshot.activeMembersCount ?? snapshot.activeMembers ?? null,
       churn_risk_count: snapshot.churnRiskCount ?? null,
       avg_visits_per_week: snapshot.avgVisitsPerWeek ?? null,
       revenue_mtd: snapshot.revenueMtd ?? null,
-      open_tasks: snapshot.openTasksCount ?? null,
+      open_tasks: snapshot.openTasksCount ?? snapshot.openTasks ?? null,
       insights_generated: snapshot.insightsGenerated ?? null,
       raw_data: snapshot.rawData ?? {},
     })
