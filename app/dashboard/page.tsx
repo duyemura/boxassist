@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import AppShell from '@/components/AppShell'
-import AgentTable from '@/components/AgentTable'
+import GMAgentPanel from '@/components/GMAgentPanel'
+import ToDoList, { ToDoItem } from '@/components/ToDoList'
 import FleetOverview from '@/components/FleetOverview'
 import AgentDetail from '@/components/AgentDetail'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
 import SettingsPanel from '@/components/SettingsPanel'
-import NeedsAttentionList from '@/components/NeedsAttentionList'
 import SkillsPanel from '@/components/SkillsPanel'
 import CommandBar from '@/components/CommandBar'
 import RightPanel from '@/components/RightPanel'
@@ -222,40 +222,16 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [runResult, setRunResult] = useState<any>(null)
-  const [actionStates, setActionStates] = useState<Record<string, 'pending' | 'approving' | 'approved' | 'dismissed' | 'sent'>>({})
-  // Tracks replyTokens for actions sent this session — lets panel show thread on reopen
-  const [replyTokenMap, setReplyTokenMap] = useState<Record<string, string>>({})
+  // Dismissed IDs tracked locally so items disappear immediately on dismiss
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const [demoToast, setDemoToast] = useState<string | null>(null)
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
-  const [humanizing, setHumanizing] = useState(false)
 
-  const selectActionWithHumanizer = async (action: ActionCard | null) => {
-    if (!action || !action.draftedMessage) { setSelectedAction(action); return }
-    setSelectedAction(action)
-    // Humanize every message before showing to owner — AI drafts sound robotic without it
-    try {
-      setHumanizing(true)
-      const res = await fetch('/api/humanize-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: action.draftedMessage,
-          memberName: action.memberName,
-          context: action.insights,
-        }),
-      })
-      const data = await res.json()
-      if (data.message && data.message !== action.draftedMessage) {
-        setSelectedAction(prev => prev ? { ...prev, draftedMessage: data.message } : prev)
-      }
-    } catch {}
-    finally { setHumanizing(false) }
-  }
+  const selectAction = (action: ActionCard | null) => setSelectedAction(action)
   const [mobileTab, setMobileTab] = useState<'agents' | 'attention' | 'settings'>('agents')
   const [activeSection, setActiveSection] = useState<'agents' | 'skills' | 'connectors' | 'settings'>('agents')
-  const [gmailConnected, setGmailConnected] = useState<string | null>(null)
   const [instagramConnected, setInstagramConnected] = useState<boolean>(false)
   const [instagramUsername, setInstagramUsername] = useState<string | null>(null)
   const [selectedConnector, setSelectedConnector] = useState<string | null>(null)
@@ -346,10 +322,6 @@ function DashboardContent() {
 
   useEffect(() => {
     fetchDashboard()
-    // Fetch Gmail status quietly
-    fetch('/api/auth/gmail/status').then(r => r.ok ? r.json() : null).then(j => {
-      if (j?.email) setGmailConnected(j.email)
-    }).catch(() => {})
     // Fetch Instagram status quietly
     fetch('/api/connectors/instagram/status').then(r => r.ok ? r.json() : null).then(j => {
       if (j?.connected) { setInstagramConnected(true); setInstagramUsername(j.username ?? null) }
@@ -407,49 +379,30 @@ function DashboardContent() {
     setRunning(false)
   }
 
-  const handleSend = async (actionId: string, memberName: string, message: string) => {
+  const handleMarkDone = async (actionId: string) => {
+    setDismissedIds(prev => new Set([...prev, actionId]))
+    setSelectedAction(null)
+    if (isDemo) return
     try {
       await fetch('/api/autopilot/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actionId, message })
+        body: JSON.stringify({ actionId })
       })
     } catch {}
   }
 
-  const handleRealDemoSend = async (message: string, subject: string, memberName: string, memberEmail: string, automationLevel = 'draft_only'): Promise<string | null> => {
-    const res = await fetch('/api/demo/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, subject, toEmail: memberEmail, automationLevel }),
-    })
-    const data = await res.json()
-    const replyToken = data?.replyToken ?? null
-
-    if (selectedAction && replyToken) {
-      // Mark as sent in list
-      setActionStates(prev => ({ ...prev, [selectedAction.id]: 'sent' }))
-      // Patch the replyToken into the action's content so reopening the panel
-      // can find the existing thread — survives panel close/reopen in this session
-      setSelectedAction(prev => prev ? {
-        ...prev,
-        content: { ...prev.content, _replyToken: replyToken }
-      } : prev)
-      // Also store in replyTokenMap so agentActions list picks it up on reopen
-      setReplyTokenMap(prev => ({ ...prev, [selectedAction.id]: replyToken }))
-    }
-    return replyToken
-  }
-
-  const handleSkip = async (actionId: string) => {
-    setActionStates(prev => ({ ...prev, [actionId]: 'dismissed' }))
+  const handleDismiss = async (actionId: string) => {
+    setDismissedIds(prev => new Set([...prev, actionId]))
     setSelectedAction(null)
     if (isDemo) return
-    await fetch('/api/autopilot/dismiss', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ actionId })
-    })
+    try {
+      await fetch('/api/autopilot/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId })
+      })
+    } catch {}
   }
 
   // ─── Derived state ────────────────────────────────────────────────────────────
@@ -490,12 +443,7 @@ function DashboardContent() {
 
   const uniqueActions = allActions
     .filter((a, i, self) => i === self.findIndex(b => b.content?.memberId === a.content?.memberId))
-    .filter(a => actionStates[a.id] !== 'dismissed')
-    // Merge in any replyTokens from sends this session so panel can find the thread on reopen
-    .map(a => replyTokenMap[a.id]
-      ? { ...a, content: { ...a.content, _replyToken: replyTokenMap[a.id] } }
-      : a
-    )
+    .filter(a => !dismissedIds.has(a.id))
 
   const gymName = isDemo
     ? 'PushPress East'
@@ -512,26 +460,84 @@ function DashboardContent() {
     ? []
     : uniqueActions
 
+  // Map ActionCard → ToDoItem for the ToDoList component
+  const mapActionToToDoItem = (action: ActionCard): ToDoItem => {
+    const c = action.content
+    const priorityMap: Record<string, ToDoItem['priority']> = {
+      high: 'high',
+      medium: 'medium',
+      low: 'low',
+    }
+    const insightTypeFromPlaybook = (() => {
+      const name = (c.playbookName ?? '').toLowerCase()
+      if (name.includes('win') || name.includes('lapsed')) return 'win_back'
+      if (name.includes('renewal')) return 'renewal_at_risk'
+      if (name.includes('payment')) return 'payment_failed'
+      if (name.includes('lead')) return 'new_lead'
+      return 'churn_risk'
+    })()
+    return {
+      id: action.id,
+      priority: priorityMap[c.riskLevel] ?? 'medium',
+      insightType: insightTypeFromPlaybook,
+      memberName: c.memberName,
+      memberEmail: c.memberEmail,
+      title: c.riskReason,
+      detail: c.insights ?? '',
+      recommendedAction: c.recommendedAction ?? '',
+      estimatedImpact: '',  // not in legacy ActionCard; filled by new agent_tasks if available
+      draftMessage: c.draftedMessage,
+      approved: action.approved,
+      dismissed: action.dismissed,
+    }
+  }
+
+  const todoItems: ToDoItem[] = uniqueActions.map(mapActionToToDoItem)
+
+  // Handler that bridges ToDoItem back to ActionCard for the slide panel
+  const handleSelectToDoItem = (item: ToDoItem) => {
+    const action = uniqueActions.find(a => a.id === item.id) ?? null
+    if (action) selectAction(action)
+  }
+
+  // GM Agent stats derived from data
+  const gmLastRunAt = isDemo
+    ? new Date(Date.now() - 2 * 3_600_000).toISOString()
+    : (data?.recentRuns?.[0]?.created_at ?? null)
+  const gmInsightsFound = isDemo ? uniqueActions.length : uniqueActions.length
+  const gmActiveMembers = memberCount > 0 ? memberCount : undefined
+  const gmChurnRisk = uniqueActions.filter(a => a.content?.riskLevel === 'high').length || undefined
+  const gmRecentRuns = isDemo
+    ? [
+        { id: 'dr1', created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(), insights_generated: 3 },
+        { id: 'dr2', created_at: new Date(Date.now() - 27 * 3_600_000).toISOString(), insights_generated: 1 },
+        { id: 'dr3', created_at: new Date(Date.now() - 4 * 86_400_000).toISOString(), insights_generated: 6 },
+      ]
+    : (data?.recentRuns?.map((r: { id: string; created_at: string; actions_taken?: number }) => ({
+        id: r.id,
+        created_at: r.created_at,
+        insights_generated: r.actions_taken ?? 0,
+      })) ?? [])
+
   // Mobile center content depends on tab
   const mobileCenter = mobileTab === 'attention' ? (
-    <NeedsAttentionList
-      actions={uniqueActions}
-      onSelectAction={selectActionWithHumanizer}
+    <ToDoList
+      items={todoItems}
+      onSelectItem={handleSelectToDoItem}
     />
   ) : (
-    <AgentTable
-      agents={autopilots}
-      selectedId={selectedAgentId}
-      onSelect={(id) => {
-        setSelectedAgentId(id)
-        // On mobile, tapping an agent shows detail (switch to agents tab)
-        setMobileTab('agents')
-      }}
-      isDemo={isDemo}
+    <GMAgentPanel
+      lastRunAt={gmLastRunAt}
+      insightsFound={gmInsightsFound}
+      activeMembers={gmActiveMembers}
+      churnRiskCount={gmChurnRisk}
+      onRunAnalysis={runScan}
+      isRunning={running}
+      recentRuns={gmRecentRuns}
     />
   )
 
-  // Desktop center is always AgentTable
+  // Desktop center
   const desktopCenter = (
     <>
       {/* Mobile shows tab-based content */}
@@ -545,7 +551,7 @@ function DashboardContent() {
             <AgentDetail
               agent={selectedAgent}
               actions={agentActions}
-              onSelectAction={selectActionWithHumanizer}
+              onSelectAction={(a: ActionCard) => selectAction(a)}
               onSelectRun={setSelectedRun}
               isDemo={isDemo}
               onScanNow={runScan}
@@ -563,15 +569,6 @@ function DashboardContent() {
             {/* Page header */}
             <div className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-gray-100">
               <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
-              {!isDemo && (
-                <button
-                  onClick={() => { setCreatingAgent(true); setSelectedAgentForEdit(null) }}
-                  className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
-                  style={{ backgroundColor: '#0063FF' }}
-                >
-                  + New agent
-                </button>
-              )}
             </div>
             {/* Active scan indicator */}
             {running && (
@@ -580,16 +577,20 @@ function DashboardContent() {
                 <span className="text-xs text-gray-600">Scanning {memberCount && memberCount > 0 ? `${memberCount} members` : 'members'}…</span>
               </div>
             )}
-            <AgentTable
-              agents={autopilots}
-              selectedId={selectedAgentId}
-              onSelect={(id) => {
-                setSelectedAgentId(id)
-                setSelectedRun(null)
-                const agent = autopilots.find((a: any) => a.id === id)
-                setSelectedAgentForEdit(agent ?? null)
-              }}
-              isDemo={isDemo}
+            {/* GM Agent panel */}
+            <GMAgentPanel
+              lastRunAt={gmLastRunAt}
+              insightsFound={gmInsightsFound}
+              activeMembers={gmActiveMembers}
+              churnRiskCount={gmChurnRisk}
+              onRunAnalysis={runScan}
+              isRunning={running}
+              recentRuns={gmRecentRuns}
+            />
+            {/* To-Do list */}
+            <ToDoList
+              items={todoItems}
+              onSelectItem={handleSelectToDoItem}
             />
           </>
         )}
@@ -682,7 +683,7 @@ function DashboardContent() {
             <div className="space-y-px">
               {[
                 { name: 'PushPress', desc: 'Member data, check-ins, billing, and membership status.', connected: true },
-                { name: 'Gmail', desc: 'Send emails from your real address. Replies come back to the agent.', connected: gmailConnected, action: () => setActiveSection('settings') },
+                { name: 'Gmail', desc: 'Connect your Gmail to send outreach from your real address.', connected: false, soon: true },
                 { name: 'Instagram', desc: 'Auto-post member milestones, retention wins, and class highlights.', connected: instagramConnected, action: () => setSelectedConnector('instagram') },
                 { name: 'SMS / Twilio', desc: 'Text members directly from the agent.', connected: false, soon: true },
                 { name: 'Zapier', desc: 'Connect to 5,000+ apps and automate workflows.', connected: false, soon: true },
@@ -734,7 +735,7 @@ function DashboardContent() {
             <SettingsPanel
               data={data}
               isDemo={isDemo}
-              gmailConnected={gmailConnected}
+              gmailConnected={null}
             />
           </>
         )}
@@ -797,10 +798,10 @@ function DashboardContent() {
                       {firstName}, you've been flagged.
                     </h2>
                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                      You just entered this gym as a member. The At-Risk Monitor noticed you haven't been in for 19 days and drafted a personal message from the coach — ready to send with one click.
+                      You just entered this gym as a member. The At-Risk Monitor noticed you haven't been in for 19 days and drafted a personal message from the coach — ready for you to copy and send yourself.
                     </p>
                     <p className="text-sm text-gray-500 leading-relaxed mb-5">
-                      <strong className="text-gray-900">This is exactly what your members experience.</strong> Check the right rail — you're at the top of Needs Attention. Click your name to see the message.
+                      <strong className="text-gray-900">This is exactly what your members look like to you.</strong> Check the to-do list — you're at the top. Click your name to see the suggested message.
                     </p>
                   </>
                 ) : (
@@ -812,7 +813,7 @@ function DashboardContent() {
                       Your agents are watching.
                     </h2>
                     <p className="text-sm text-gray-500 leading-relaxed mb-4">
-                      The At-Risk Monitor scanned 247 members and found 3 who need attention. Their messages are drafted and waiting for your approval — check the right rail.
+                      The At-Risk Monitor scanned 247 members and found 3 who need attention. Suggested messages are ready for you to copy and use — check the to-do list.
                     </p>
                   </>
                 )}
@@ -821,8 +822,8 @@ function DashboardContent() {
                 <div className="border-t border-gray-100 pt-4 mb-5 space-y-3">
                   {[
                     { n: '1', text: 'Agents scan your members continuously — attendance, renewals, payments' },
-                    { n: '2', text: isPersonal ? 'They flagged you and drafted a personal message' : 'They flag who needs attention and draft a message' },
-                    { n: '3', text: 'You review, edit, and send in one click — or let the agent handle it' },
+                    { n: '2', text: isPersonal ? 'They flagged you and drafted a suggested message' : 'They flag who needs attention and draft a suggested message' },
+                    { n: '3', text: 'You copy the message, reach out yourself, and mark it done' },
                   ].map(s => (
                     <div key={s.n} className="flex items-start gap-3">
                       <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: '#0063FF' }}>{s.n}</span>
@@ -838,7 +839,7 @@ function DashboardContent() {
                   <button
                     onClick={() => {
                       dismissTour()
-                      if (visitorCard) selectActionWithHumanizer(visitorCard)
+                      if (visitorCard) selectAction(visitorCard)
                     }}
                     className="text-xs font-semibold text-white px-4 py-2 transition-opacity hover:opacity-90"
                     style={{ backgroundColor: '#0063FF' }}
@@ -876,8 +877,7 @@ function DashboardContent() {
             scanning={running}
             memberCount={memberCount}
             runResult={runResult}
-            actionStates={actionStates}
-            onSelectAction={selectActionWithHumanizer}
+            onSelectAction={(a: ActionCard) => selectAction(a)}
             onSelectRun={setSelectedRun}
             onScanNow={runScan}
           />
@@ -887,13 +887,10 @@ function DashboardContent() {
             ? (
               <ActionSlidePanel
                 action={selectedAction}
-                isDemo={isDemo}
-                isSandboxDemo={isSandboxDemo}
-                humanizing={humanizing}
-                gmailConnected={!!gmailConnected}
-                onSend={handleSend}
-                onRealDemoSend={handleRealDemoSend}
-                onSkip={handleSkip}
+                isOpen={!!selectedAction}
+                onClose={() => setSelectedAction(null)}
+                onDismiss={handleDismiss}
+                onMarkDone={handleMarkDone}
               />
             )
             : null
@@ -935,7 +932,7 @@ function DashboardContent() {
                 { label: 'Autonomous follow-through', heading: 'Follows up until the job is done', body: "Not just one message. The agent keeps the conversation going — responding to replies, adjusting tone, following up weekly if they go quiet." },
                 { label: 'Lead response', heading: 'Replies to new leads in minutes', body: "A new inquiry comes in while you're coaching. GymAgents drafts a warm, personal reply in your voice." },
                 { label: 'Win-back', heading: 'Writes genuine win-back notes', body: "When someone cancels, the agent looks at their history and drafts a sincere note. Not a template. A real message." },
-                { label: 'Payment recovery', heading: 'Handles failed payments gracefully', body: "A friendly, non-embarrassing message goes out the moment a payment fails — drafted for your voice, ready to approve." },
+                { label: 'Payment recovery', heading: 'Handles failed payments gracefully', body: "A friendly, non-embarrassing message is drafted the moment a payment fails — ready to copy, personalize, and send yourself." },
                 { label: 'Build your own', heading: 'Describe it in plain English. It runs.', body: "Want something custom? Just say what you want it to do. GymAgents figures out the logic, the timing, and the action." },
               ].map((f, i) => (
                 <div key={i} className="px-8 py-10 border border-white/5">
