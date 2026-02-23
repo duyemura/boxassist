@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   const eventType = body?.type ?? ''
   if (eventType && eventType !== 'email.received') {
     console.log(`inbound webhook: ignoring event type "${eventType}"`)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, skipped: true, reason: `event_type_ignored:${eventType}` })
   }
 
   const data = body?.data ?? body  // some setups wrap in data, some don't
@@ -108,24 +108,34 @@ export async function POST(req: NextRequest) {
       member_email: 'debug@debug.com',
       member_name: 'Debug',
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: 'no_reply_token',
+      debug: { to: toAddress, from, emailId },
+    })
   }
 
   const actionId = match[1]
 
-  // Fetch body if not in payload (which is always the case for email.received)
+  // Fetch body — always needed since email.received payload never includes it
+  let bodyFetchStatus = 'not_needed'
   if (!text && !html && emailId) {
+    bodyFetchStatus = 'fetching'
     try {
       const resend = new Resend(process.env.RESEND_API_KEY!)
       const { data: emailData, error: fetchError } = await resend.emails.receiving.get(emailId)
       if (fetchError) {
         console.error(`inbound: receiving.get(${emailId}) error:`, fetchError)
+        bodyFetchStatus = `fetch_error:${(fetchError as any)?.message ?? 'unknown'}`
       } else {
         text = (emailData as any)?.text ?? ''
         html = (emailData as any)?.html ?? ''
-        console.log(`inbound: fetched body via receiving.get(${emailId}), text_len=${text.length}`)
+        bodyFetchStatus = `fetched:text_len=${text.length},html_len=${html.length}`
+        console.log(`inbound: ${bodyFetchStatus}`)
       }
-    } catch (err) {
+    } catch (err: any) {
+      bodyFetchStatus = `fetch_exception:${err?.message ?? 'unknown'}`
       console.error('inbound: failed to fetch email body:', err)
     }
   }
@@ -138,17 +148,27 @@ export async function POST(req: NextRequest) {
       action_id: actionId,
       gym_id: 'demo',
       role: 'inbound',
-      text: `[empty-body] email_id=${emailId} raw_keys=${Object.keys(data).join(',')}`,
+      text: `[empty-body] email_id=${emailId} bodyFetchStatus=${bodyFetchStatus}`,
       member_email: from,
       member_name: 'Unknown',
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: 'empty_body',
+      debug: { actionId, emailId, bodyFetchStatus },
+    })
   }
 
   const cleanText = stripQuotedReply(bodyText)
   if (!cleanText.trim()) {
     console.log(`inbound: empty after quote-strip for token ${actionId}`)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: 'empty_after_quote_strip',
+      debug: { actionId, emailId, rawBodyLen: bodyText.length },
+    })
   }
 
   const nameMatch = from.match(/^(.+?)\s*</)
@@ -157,6 +177,7 @@ export async function POST(req: NextRequest) {
 
   console.log(`inbound: token=${actionId} from=${fromEmail} text="${cleanText.slice(0, 80)}"`)
 
+  let agentResult = 'not_run'
   try {
     await handleInboundReply({
       actionId,
@@ -164,12 +185,23 @@ export async function POST(req: NextRequest) {
       memberEmail: fromEmail,
       memberName: fromName,
     })
+    agentResult = 'completed'
     console.log(`inbound: handleInboundReply completed for ${actionId}`)
-  } catch (err) {
+  } catch (err: any) {
+    agentResult = `failed:${err?.message ?? 'unknown'}`
     console.error(`inbound: handleInboundReply FAILED:`, err)
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: agentResult === 'completed',
+    processed: true,
+    actionId,
+    from: fromEmail,
+    memberName: fromName,
+    replyLen: cleanText.length,
+    bodyFetchStatus,
+    agentResult,
+  })
 }
 
 function stripHtml(html: string): string {

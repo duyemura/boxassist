@@ -67,76 +67,81 @@ export async function POST(req: NextRequest) {
 
   console.log(`resend webhook: ${eventType}`, JSON.stringify(data).slice(0, 200))
 
+  let result: Record<string, any> = { eventType, emailId: data.email_id ?? null }
+
   switch (eventType) {
     case 'email.received':
-      // Await directly — Vercel kills background work after response is sent
-      await handleEmailReceived(data)
+      result = { ...result, ...(await handleEmailReceived(data)) }
       break
     case 'email.opened':
-      await handleEmailOpened(data)
+      result = { ...result, ...(await handleEmailOpened(data)) }
       break
     case 'email.delivered':
-      await handleEmailDelivered(data)
+      result = { ...result, ...(await handleEmailDelivered(data)) }
       break
     case 'email.bounced':
-      await handleEmailBounced(data)
+      result = { ...result, ...(await handleEmailBounced(data)) }
       break
     case 'email.complained':
-      await handleEmailComplained(data)
+      result = { ...result, ...(await handleEmailComplained(data)) }
       break
     case 'email.failed':
       console.log('email.failed:', data.email_id, data.to)
+      result.action = 'logged'
       break
     default:
       console.log(`resend webhook: unhandled event type "${eventType}"`)
+      result.action = 'ignored'
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, ...result })
 }
 
 // ─── email.received ───────────────────────────────────────────────────────────
 
-async function handleEmailReceived(data: any) {
+async function handleEmailReceived(data: any): Promise<Record<string, any>> {
   const toRaw = data.to ?? ''
   const from = data.from ?? ''
   const emailId = data.email_id ?? ''
-
   const toAddress = Array.isArray(toRaw) ? toRaw[0] : toRaw
 
-  // Extract actionId from reply+{actionId}@lunovoria.resend.app
   const match = toAddress?.match(/reply\+([a-zA-Z0-9_-]+)@/)
   if (!match) {
     console.log('email.received: no reply+ token in to address:', toAddress)
-    return
+    return { action: 'skipped', reason: 'no_reply_token', to: toAddress }
   }
 
   const actionId = match[1]
 
-  // Resend's email.received webhook only sends metadata — body is NOT in the payload.
-  // Must call resend.emails.receiving.get(emailId) — the receiving-specific endpoint.
-  // DO NOT use resend.emails.get() — that's for outbound emails and returns 404 here.
+  // Resend's email.received webhook does NOT include the body in the payload.
+  // Must call resend.emails.receiving.get(emailId).
   let text = data.text ?? ''
   let html = data.html ?? ''
+  let bodyFetchStatus = 'not_needed'
+
   if (!text && !html && emailId) {
     try {
       const resend = new Resend(process.env.RESEND_API_KEY!)
       const { data: emailData, error: fetchError } = await resend.emails.receiving.get(emailId)
       if (fetchError) {
         console.error(`email.received: receiving.get(${emailId}) error:`, fetchError)
+        bodyFetchStatus = `fetch_error:${(fetchError as any)?.message ?? 'unknown'}`
       } else {
         text = (emailData as any)?.text ?? ''
         html = (emailData as any)?.html ?? ''
-        console.log(`email.received: fetched body via receiving.get(${emailId}), text_len=${text.length} html_len=${html.length}`)
+        bodyFetchStatus = `fetched:text_len=${text.length},html_len=${html.length}`
+        console.log(`email.received: ${bodyFetchStatus}`)
       }
-    } catch (err) {
+    } catch (err: any) {
+      bodyFetchStatus = `fetch_exception:${err?.message ?? 'unknown'}`
       console.error('email.received: failed to fetch email body:', err)
     }
   }
 
-  const cleanText = stripQuotedReply(text)
+  const cleanText = stripQuotedReply(text || html)
   if (!cleanText.trim()) {
-    console.log('email.received: empty body after stripping quotes, skipping')
-    return
+    console.log('email.received: empty body after stripping quotes')
+    return { action: 'skipped', reason: 'empty_body', actionId, bodyFetchStatus }
   }
 
   const nameMatch = from.match(/^(.+?)\s*</)
@@ -153,59 +158,67 @@ async function handleEmailReceived(data: any) {
       memberName: fromName,
     })
     console.log(`email.received: handleInboundReply completed for ${actionId}`)
-  } catch (err) {
+    return {
+      action: 'processed',
+      actionId,
+      from: fromEmail,
+      memberName: fromName,
+      replyLen: cleanText.length,
+      bodyFetchStatus,
+    }
+  } catch (err: any) {
     console.error(`email.received: handleInboundReply FAILED for ${actionId}:`, err)
+    return {
+      action: 'agent_error',
+      actionId,
+      error: err?.message ?? 'unknown',
+      bodyFetchStatus,
+    }
   }
 }
 
 // ─── email.opened ─────────────────────────────────────────────────────────────
 
-async function handleEmailOpened(data: any) {
-  // data.email_id is Resend's email id — we store this as external_email_id
-  // Update agent_actions: mark as opened, note the timestamp
+async function handleEmailOpened(data: any): Promise<Record<string, any>> {
   const emailId = data.email_id
-  if (!emailId) return
+  if (!emailId) return { action: 'skipped', reason: 'no_email_id' }
 
   try {
     const { error } = await supabase
       .from('agent_actions')
-      .update({
-        email_opened_at: new Date().toISOString(),
-      })
+      .update({ email_opened_at: new Date().toISOString() })
       .eq('external_email_id', emailId)
 
     if (error) {
-      // Column may not exist yet — log and continue
       console.log('email.opened: update failed (column may not exist):', error.message)
-    } else {
-      console.log(`email.opened: marked email_id=${emailId}`)
+      return { action: 'logged', note: 'db_update_failed', emailId }
     }
-  } catch (e) {
-    console.log('email.opened error:', e)
+    console.log(`email.opened: marked email_id=${emailId}`)
+    return { action: 'marked_opened', emailId }
+  } catch (e: any) {
+    return { action: 'error', error: e?.message, emailId }
   }
 }
 
 // ─── email.delivered ──────────────────────────────────────────────────────────
 
-async function handleEmailDelivered(data: any) {
+async function handleEmailDelivered(data: any): Promise<Record<string, any>> {
   const emailId = data.email_id
-  if (!emailId) return
+  if (!emailId) return { action: 'skipped', reason: 'no_email_id' }
   console.log(`email.delivered: email_id=${emailId}`)
-  // Future: update delivery status on agent_actions
+  return { action: 'logged', emailId }
 }
 
 // ─── email.bounced ────────────────────────────────────────────────────────────
 
-async function handleEmailBounced(data: any) {
-  // Mark member email as invalid so we don't send to them again
+async function handleEmailBounced(data: any): Promise<Record<string, any>> {
   const toRaw = data.to ?? ''
   const bounceEmail = Array.isArray(toRaw) ? toRaw[0] : toRaw
-  if (!bounceEmail) return
+  if (!bounceEmail) return { action: 'skipped', reason: 'no_to_address' }
 
   console.log(`email.bounced: ${bounceEmail} — marking invalid`)
 
   try {
-    // Log into agent_conversations so gym owner can see it
     const { error } = await supabase
       .from('agent_conversations')
       .insert({
@@ -215,17 +228,18 @@ async function handleEmailBounced(data: any) {
         member_email: bounceEmail,
       })
     if (error) console.log('email.bounced insert error:', error.message)
-  } catch (e) {
-    console.log('email.bounced error:', e)
+    return { action: 'logged_bounce', email: bounceEmail }
+  } catch (e: any) {
+    return { action: 'error', error: e?.message, email: bounceEmail }
   }
 }
 
 // ─── email.complained ────────────────────────────────────────────────────────
 
-async function handleEmailComplained(data: any) {
+async function handleEmailComplained(data: any): Promise<Record<string, any>> {
   const toRaw = data.to ?? ''
   const complainEmail = Array.isArray(toRaw) ? toRaw[0] : toRaw
-  if (!complainEmail) return
+  if (!complainEmail) return { action: 'skipped', reason: 'no_to_address' }
 
   console.log(`email.complained: ${complainEmail} — marking unsubscribed`)
 
@@ -235,11 +249,12 @@ async function handleEmailComplained(data: any) {
       .insert({
         action_id: `complaint-${Date.now()}`,
         role: 'agent_decision',
-        text: `Spam complaint received from ${complainEmail}. Member has been unsubscribed from all future outreach.`,
+        text: `Spam complaint received from ${complainEmail}. Member has been unsubscribed.`,
         member_email: complainEmail,
       })
-  } catch (e) {
-    console.log('email.complained error:', e)
+    return { action: 'logged_complaint', email: complainEmail }
+  } catch (e: any) {
+    return { action: 'error', error: e?.message, email: complainEmail }
   }
 }
 
