@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { Webhook } from 'svix'
 import { handleInboundReply } from '@/lib/reply-agent'
 
 const supabase = createClient(
@@ -26,13 +27,47 @@ const supabase = createClient(
  *     ...
  *   }
  * }
+ *
+ * Signature verification: Resend signs webhooks via Svix.
+ * Set RESEND_WEBHOOK_SECRET to the whsec_... signing secret from
+ * Resend → Emails → Receiving → Webhook settings.
+ * If the env var is not set, verification is skipped (dev/test mode).
  */
 export async function POST(req: NextRequest) {
+  const rawBody = await req.text()
   let body: any
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+
+  // ── Signature verification (Svix) ────────────────────────────────────────
+  const signingSecret = process.env.RESEND_WEBHOOK_SECRET
+  if (signingSecret) {
+    const svixId        = req.headers.get('svix-id') ?? ''
+    const svixTimestamp = req.headers.get('svix-timestamp') ?? ''
+    const svixSignature = req.headers.get('svix-signature') ?? ''
+
+    if (!svixId || !svixTimestamp || !svixSignature) {
+      console.warn('inbound webhook: missing svix headers — rejecting')
+      return NextResponse.json({ error: 'Missing signature headers' }, { status: 400 })
+    }
+
+    try {
+      const wh = new Webhook(signingSecret)
+      body = wh.verify(rawBody, {
+        'svix-id':        svixId,
+        'svix-timestamp': svixTimestamp,
+        'svix-signature': svixSignature,
+      })
+    } catch (err) {
+      console.error('inbound webhook: signature verification failed', err)
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+  } else {
+    // No secret configured — skip verification (dev / test)
+    console.warn('inbound webhook: RESEND_WEBHOOK_SECRET not set, skipping verification')
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+    }
   }
 
   // Log the full raw payload to DB for debugging
