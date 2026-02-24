@@ -209,8 +209,8 @@ function buildAgentDeps() {
 // POST /api/cron/run-analysis
 // ──────────────────────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Validate CRON_SECRET
+async function handler(req: NextRequest): Promise<NextResponse> {
+  // Validate CRON_SECRET — Vercel sends Authorization: Bearer <CRON_SECRET> on GET
   const authHeader = req.headers.get('authorization')
   const expectedSecret = process.env.CRON_SECRET
 
@@ -317,3 +317,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     totalTasksCreated,
   })
 }
+
+// Vercel Cron Jobs send GET requests — also keep POST for manual triggers
+export const GET = handler
+export const POST = handler

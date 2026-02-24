@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/run-analysis",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/tick-workflows",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/attribute-outcomes",
+      "schedule": "0 * * * *"
     }
   ]
 }
