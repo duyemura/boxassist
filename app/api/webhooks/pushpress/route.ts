@@ -115,15 +115,31 @@ async function processWebhookAsync(rawBody: string) {
 
   if (!gym) {
     console.log(`[webhook] no gym for company=${companyId}, event stored`)
+    // Still mark as processed even when no gym matched
+    if (webhookEvent?.id) {
+      await supabaseAdmin
+        .from('webhook_events')
+        .update({ processed_at: new Date().toISOString(), agent_runs_triggered: 0 })
+        .eq('id', webhookEvent.id)
+    }
     return
   }
+
+  console.log(`[webhook] gym matched: ${gym.id} (${gym.gym_name})`)
 
   // Decrypt the stored API key to pass to MCP
   let decryptedApiKey: string
   try {
     decryptedApiKey = decrypt(gym.pushpress_api_key)
-  } catch {
-    console.error('[webhook] could not decrypt API key for gym', gym.id)
+  } catch (err: any) {
+    console.error('[webhook] could not decrypt API key for gym', gym.id, err.message)
+    // Still mark as processed so we know it ran
+    if (webhookEvent?.id) {
+      await supabaseAdmin
+        .from('webhook_events')
+        .update({ processed_at: new Date().toISOString(), agent_runs_triggered: 0 })
+        .eq('id', webhookEvent.id)
+    }
     return
   }
 
@@ -133,13 +149,15 @@ async function processWebhookAsync(rawBody: string) {
   }
 
   // Find active agent subscriptions for this event type
-  const { data: subs } = await supabaseAdmin
+  const { data: subs, error: subsErr } = await supabaseAdmin
     .from('agent_subscriptions')
     .select('id, autopilot_id, autopilots(*)')
     .eq('gym_id', gym.id)
     .eq('event_type', eventType)
     .eq('is_active', true)
-    .catch(() => ({ data: [] }))
+
+  if (subsErr) console.log(`[webhook] subs query error: ${subsErr.message}`)
+  console.log(`[webhook] found ${subs?.length ?? 0} subscriptions for ${eventType}`)
 
   let runsTriggered = 0
   const eventData = (payload.data ?? payload.object ?? payload) as Record<string, unknown>
@@ -158,25 +176,26 @@ async function processWebhookAsync(rawBody: string) {
 
   // Update webhook event with result count
   if (webhookEvent?.id) {
-    await supabaseAdmin
+    const { error: updateErr } = await supabaseAdmin
       .from('webhook_events')
       .update({
         processed_at: new Date().toISOString(),
         agent_runs_triggered: runsTriggered
       })
       .eq('id', webhookEvent.id)
-      .catch(() => {})
+    if (updateErr) console.error(`[webhook] processed_at update failed: ${updateErr.message}`)
   }
 
   // ── GM Agent: react to important events immediately ─────────────────────────
-  // Wrapped in try/catch — webhook handler must never throw
   try {
+    console.log(`[webhook] running GMAgent.handleEvent...`)
     const gmAgent = new GMAgent(buildWebhookAgentDeps())
     gmAgent.setCreateInsightTask(createInsightTask)
     await gmAgent.handleEvent(gym.id, {
       type: eventType,
       data: eventData,
     })
+    console.log(`[webhook] GMAgent.handleEvent done`)
   } catch (err) {
     console.error('[webhook] GMAgent.handleEvent error:', err)
   }
