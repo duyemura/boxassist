@@ -593,7 +593,28 @@ function DashboardContent() {
           <div className="flex flex-col h-full">
             {isDemo ? (
               <>
-                {/* Demo focus: to-do list is the whole point */}
+                {/* Demo: sticky header with Run Analysis always visible */}
+                <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">At-Risk Monitor</span>
+                    <span className="text-[10px] text-gray-400">· last run 2h ago</span>
+                  </div>
+                  <button
+                    onClick={runScan}
+                    disabled={running}
+                    className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    {running ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full border border-white border-t-transparent animate-spin" />
+                        Scanning…
+                      </>
+                    ) : (
+                      'Run Analysis'
+                    )}
+                  </button>
+                </div>
                 <ToDoList items={todoItems} onSelectItem={handleSelectToDoItem} />
               </>
             ) : (
@@ -935,27 +956,6 @@ function DashboardContent() {
         rightPanel={
           isDemo ? (
             <div className="flex flex-col h-full">
-              {/* Run Analysis — the primary kickoff action */}
-              <div className="px-4 py-4 border-b border-gray-100 flex-shrink-0">
-                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">Agent Controls</p>
-                <button
-                  onClick={runScan}
-                  disabled={running}
-                  className="w-full text-xs font-semibold text-white py-2.5 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
-                  style={{ backgroundColor: '#0063FF' }}
-                >
-                  {running ? (
-                    <>
-                      <span className="w-3 h-3 rounded-full border border-white border-t-transparent animate-spin" />
-                      Scanning members…
-                    </>
-                  ) : (
-                    'Run Analysis Now'
-                  )}
-                </button>
-                <p className="text-[10px] text-gray-400 mt-2 text-center">Scans all members · Drafts outreach · Updates queue</p>
-              </div>
-
               {/* What the agent did */}
               <div className="px-4 py-4 border-b border-gray-100 flex-shrink-0">
                 <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">Last run — 2h ago</p>
@@ -969,13 +969,6 @@ function DashboardContent() {
                     <p className="text-xs text-gray-600">{item.text}</p>
                   </div>
                 ))}
-              </div>
-
-              {/* Hint */}
-              <div className="px-4 py-3 flex-shrink-0">
-                <p className="text-[10px] text-gray-400 leading-relaxed">
-                  ← Click any member card to see the drafted message and approve it.
-                </p>
               </div>
 
               <div className="flex-1" />
