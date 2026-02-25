@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (existing) {
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from('gyms')
         .update({
           pushpress_api_key: encryptedApiKey,
@@ -51,8 +51,12 @@ export async function POST(req: NextRequest) {
           connected_at: new Date().toISOString()
         })
         .eq('user_id', session.id)
+      if (updateError) {
+        console.error('[connect] Gym update failed:', updateError)
+        return NextResponse.json({ error: `Failed to update gym: ${updateError.message}` }, { status: 500 })
+      }
     } else {
-      await supabaseAdmin
+      const { error: insertError } = await supabaseAdmin
         .from('gyms')
         .insert({
           user_id: session.id,
@@ -62,6 +66,10 @@ export async function POST(req: NextRequest) {
           member_count: memberCount,
           connected_at: new Date().toISOString()
         })
+      if (insertError) {
+        console.error('[connect] Gym insert failed:', insertError)
+        return NextResponse.json({ error: `Failed to save gym: ${insertError.message}` }, { status: 500 })
+      }
     }
 
     // Fetch the gym record (for ID)
