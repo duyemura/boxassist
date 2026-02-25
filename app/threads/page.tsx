@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import DashboardShell from '@/components/DashboardShell'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -336,144 +337,133 @@ export default function ThreadsPage() {
   })()
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+    <DashboardShell>
+      <div className="h-full flex flex-col">
 
-      {/* ── Header ── */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-20 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-6 h-6 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
-              <span className="text-white font-bold text-xs">G</span>
-            </div>
-            <span className="font-bold text-gray-900 text-sm">GymAgents</span>
-          </Link>
-          <span className="text-gray-200">·</span>
-          <span className="text-sm font-semibold text-gray-700">Thread Inspector</span>
-        </div>
-        <div className="flex items-center gap-3">
+        {/* ── Header ── */}
+        <div className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold" style={{ color: '#080808' }}>Threads</h1>
+          </div>
           <button onClick={fetchThreads} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">
             ↻ refresh
           </button>
-          <Link href="/dashboard" className="text-xs text-gray-400 hover:text-gray-700 transition-colors">
-            ← dashboard
-          </Link>
         </div>
-      </header>
 
-      {/* ── Summary bar ── */}
-      <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-6">
-        <div className="text-xs text-gray-500">
-          <span className="font-semibold text-gray-900">{total}</span> threads
-        </div>
-        <div className="text-xs text-gray-500">
-          <span className="font-semibold text-gray-900">{resolved}</span> resolved
-        </div>
-        <div className="text-xs text-gray-500">
-          <span className="font-semibold" style={{ color: '#D97706' }}>{escalated}</span> escalated
-        </div>
-        {avgScore !== null && (
-          <div className="text-xs text-gray-500 flex items-center gap-1">
-            avg score <ScoreBadge score={avgScore} />
+        {/* ── Summary bar ── */}
+        <div className="border-b border-gray-100 px-6 py-2 flex items-center gap-6">
+          <div className="text-xs text-gray-500">
+            <span className="font-semibold text-gray-900">{total}</span> threads
           </div>
-        )}
-        {/* Email search */}
-        <div className="ml-auto">
-          <input
-            type="email"
-            placeholder="filter by member email…"
-            value={searchEmail}
-            onChange={e => setSearchEmail(e.target.value)}
-            className="text-xs border border-gray-200 px-2 py-1 w-52 focus:outline-none focus:ring-1 focus:ring-blue-200 text-gray-700 placeholder-gray-300"
-          />
-        </div>
-      </div>
-
-      {/* ── Body: list + detail ── */}
-      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 96px)' }}>
-
-        {/* Left: thread list */}
-        <div className="w-72 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col">
-
-          {/* Filter tabs */}
-          <div className="flex border-b border-gray-100">
-            {(['all', 'open', 'resolved', 'escalated'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className="flex-1 text-[10px] font-semibold tracking-widest uppercase py-2 transition-colors"
-                style={{
-                  color: filter === f ? '#0063FF' : '#9CA3AF',
-                  borderBottom: filter === f ? '2px solid #0063FF' : '2px solid transparent',
-                }}
-              >
-                {f}
-              </button>
-            ))}
+          <div className="text-xs text-gray-500">
+            <span className="font-semibold text-gray-900">{resolved}</span> resolved
           </div>
-
-          {/* Thread list */}
-          <div className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <p className="text-xs text-gray-300">Loading…</p>
-              </div>
-            ) : enriched.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                <p className="text-xs text-gray-400">No threads yet.</p>
-                <p className="text-xs text-gray-300 mt-1">Send a message from the dashboard to start one.</p>
-              </div>
-            ) : (
-              enriched.map(thread => {
-                const isSelected = selectedId === thread.action_id
-                return (
-                  <button
-                    key={thread.action_id}
-                    onClick={() => setSelectedId(thread.action_id)}
-                    className="w-full text-left px-3 py-3 border-b border-gray-50 transition-colors"
-                    style={{
-                      backgroundColor: isSelected ? 'rgba(0,99,255,0.04)' : undefined,
-                      borderLeft: isSelected ? '2px solid #0063FF' : '2px solid transparent',
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-1 mb-0.5">
-                      <span className="text-xs font-semibold text-gray-900 truncate">{thread.member_name}</span>
-                      <span className="text-[10px] text-gray-300 flex-shrink-0">{timeAgo(thread.last_at)}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {thread.resolved && (
-                        <span className="text-[10px]" style={{ color: '#16A34A' }}>✓</span>
-                      )}
-                      {thread.needs_review && (
-                        <span className="text-[10px]" style={{ color: '#D97706' }}>⚠</span>
-                      )}
-                      <span className="text-[10px] text-gray-400">
-                        {thread.turnCount} {thread.turnCount === 1 ? 'reply' : 'replies'}
-                      </span>
-                      {thread.finalAction && <ActionBadge action={thread.finalAction} />}
-                      {thread.finalScore !== null && <ScoreBadge score={thread.finalScore} />}
-                    </div>
-                  </button>
-                )
-              })
-            )}
+          <div className="text-xs text-gray-500">
+            <span className="font-semibold" style={{ color: '#D97706' }}>{escalated}</span> escalated
           </div>
-        </div>
-
-        {/* Right: thread detail */}
-        <div className="flex-1 overflow-hidden bg-white">
-          {selectedEnriched ? (
-            <ThreadDetail thread={selectedEnriched} />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center px-8">
-                <p className="text-sm text-gray-500 font-medium mb-1">No thread selected</p>
-                <p className="text-xs text-gray-400">Pick a thread from the left to see the full conversation and AI reasoning.</p>
-              </div>
+          {avgScore !== null && (
+            <div className="text-xs text-gray-500 flex items-center gap-1">
+              avg score <ScoreBadge score={avgScore} />
             </div>
           )}
+          <div className="ml-auto">
+            <input
+              type="email"
+              placeholder="filter by member email…"
+              value={searchEmail}
+              onChange={e => setSearchEmail(e.target.value)}
+              className="text-xs border border-gray-200 px-2 py-1 w-52 focus:outline-none focus:border-blue-400 text-gray-700 placeholder-gray-300"
+            />
+          </div>
         </div>
 
+        {/* ── Body: list + detail ── */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+
+          {/* Left: thread list */}
+          <div className="w-72 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col">
+
+            {/* Filter tabs */}
+            <div className="flex border-b border-gray-100">
+              {(['all', 'open', 'resolved', 'escalated'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className="flex-1 text-[10px] font-semibold tracking-widest uppercase py-2 transition-colors"
+                  style={{
+                    color: filter === f ? '#0063FF' : '#9CA3AF',
+                    borderBottom: filter === f ? '2px solid #0063FF' : '2px solid transparent',
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+
+            {/* Thread list */}
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <p className="text-xs text-gray-300">Loading…</p>
+                </div>
+              ) : enriched.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <p className="text-xs text-gray-400">No threads yet.</p>
+                  <p className="text-xs text-gray-300 mt-1">Send a message from the dashboard to start one.</p>
+                </div>
+              ) : (
+                enriched.map(thread => {
+                  const isSelected = selectedId === thread.action_id
+                  return (
+                    <button
+                      key={thread.action_id}
+                      onClick={() => setSelectedId(thread.action_id)}
+                      className="w-full text-left px-3 py-3 border-b border-gray-50 transition-colors"
+                      style={{
+                        backgroundColor: isSelected ? 'rgba(0,99,255,0.04)' : undefined,
+                        borderLeft: isSelected ? '2px solid #0063FF' : '2px solid transparent',
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-1 mb-0.5">
+                        <span className="text-xs font-semibold text-gray-900 truncate">{thread.member_name}</span>
+                        <span className="text-[10px] text-gray-300 flex-shrink-0">{timeAgo(thread.last_at)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {thread.resolved && (
+                          <span className="text-[10px]" style={{ color: '#16A34A' }}>✓</span>
+                        )}
+                        {thread.needs_review && (
+                          <span className="text-[10px]" style={{ color: '#D97706' }}>⚠</span>
+                        )}
+                        <span className="text-[10px] text-gray-400">
+                          {thread.turnCount} {thread.turnCount === 1 ? 'reply' : 'replies'}
+                        </span>
+                        {thread.finalAction && <ActionBadge action={thread.finalAction} />}
+                        {thread.finalScore !== null && <ScoreBadge score={thread.finalScore} />}
+                      </div>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right: thread detail */}
+          <div className="flex-1 overflow-hidden bg-white">
+            {selectedEnriched ? (
+              <ThreadDetail thread={selectedEnriched} />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center px-8">
+                  <p className="text-sm text-gray-500 font-medium mb-1">No thread selected</p>
+                  <p className="text-xs text-gray-400">Pick a thread from the left to see the full conversation and AI reasoning.</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
       </div>
-    </div>
+    </DashboardShell>
   )
 }

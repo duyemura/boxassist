@@ -23,9 +23,9 @@ export default defineConfig({
 
   // Ensure dev server is running and pages are compiled before tests start
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: true, // don't start a new one if already running
+    command: 'npm run dev -- --port 3000',
+    url: 'http://localhost:3000/login',
+    reuseExistingServer: true,
     timeout: 30000,
   },
 })

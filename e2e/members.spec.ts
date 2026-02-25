@@ -25,6 +25,15 @@ const MOCK_MEMBERS = [
 
 test.describe('Members Page', () => {
   test.beforeEach(async ({ page }) => {
+    // DashboardShell fetches /api/dashboard for the chrome
+    await page.route(api('/api/dashboard'), route => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ user: { email: 'test@gym.com' }, gym: { id: 'gym-1', gym_name: 'Test Gym', member_count: 120 }, pendingActions: [], agents: [], recentRuns: [], tier: 'pro' }),
+      })
+    })
+
     await page.route(api('/api/retention/members'), route => {
       route.fulfill({
         status: 200,
@@ -37,52 +46,46 @@ test.describe('Members Page', () => {
   test('renders the member list', async ({ page }) => {
     await page.goto('/dashboard/members')
 
-    await expect(page.getByText('Derek Walsh')).toBeVisible()
-    await expect(page.getByText('Priya Patel')).toBeVisible()
-    await expect(page.getByText('Alex Martinez')).toBeVisible()
-    await expect(page.getByText('Mike Torres')).toBeVisible()
+    // .last() targets visible desktop element (AppShell renders children twice: mobile + desktop)
+    await expect(page.getByText('Derek Walsh').last()).toBeVisible()
+    await expect(page.getByText('Priya Patel').last()).toBeVisible()
+    await expect(page.getByText('Alex Martinez').last()).toBeVisible()
+    await expect(page.getByText('Mike Torres').last()).toBeVisible()
   })
 
   test('shows filter tabs', async ({ page }) => {
     await page.goto('/dashboard/members')
 
-    await expect(page.getByRole('button', { name: /All/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /At Risk/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Active/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Retained/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /All/i }).last()).toBeVisible()
+    await expect(page.getByRole('button', { name: /At Risk/i }).last()).toBeVisible()
+    await expect(page.getByRole('button', { name: /Active/i }).last()).toBeVisible()
+    await expect(page.getByRole('button', { name: /Retained/i }).last()).toBeVisible()
   })
 
   test('filters to At Risk members', async ({ page }) => {
     await page.goto('/dashboard/members')
 
-    // Click At Risk tab
-    await page.getByRole('button', { name: /At Risk/i }).click()
+    // Click At Risk tab (last = visible desktop element)
+    await page.getByRole('button', { name: /At Risk/i }).last().click()
 
     // Should show only high risk members with active tasks
-    await expect(page.getByText('Derek Walsh')).toBeVisible()
-    await expect(page.getByText('Priya Patel')).toBeVisible()
+    await expect(page.getByText('Derek Walsh').last()).toBeVisible()
+    await expect(page.getByText('Priya Patel').last()).toBeVisible()
   })
 
   test('filters to Retained members', async ({ page }) => {
     await page.goto('/dashboard/members')
 
-    await page.getByRole('button', { name: /Retained/i }).click()
+    await page.getByRole('button', { name: /Retained/i }).last().click()
 
     // Only Alex should be visible (outcome=engaged)
-    await expect(page.getByText('Alex Martinez')).toBeVisible()
+    await expect(page.getByText('Alex Martinez').last()).toBeVisible()
   })
 
   test('has back link to dashboard', async ({ page }) => {
-    // Mock dashboard API for navigation
-    await page.route(api('/api/dashboard'), route => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ user: { email: 'test@gym.com' }, gym: null, pendingActions: [], agents: [], recentRuns: [], tier: 'free' }),
-      })
-    })
+    // Additional mocks for when we navigate to the dashboard page
     await page.route(api('/api/retention/scorecard'), route => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasksCreated: 0, messagesSent: 0, membersRetained: 0, revenueRetained: 0, membersChurned: 0, conversationsActive: 0, escalations: 0 }) })
     })
     await page.route(api('/api/retention/activity'), route => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
