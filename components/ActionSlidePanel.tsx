@@ -19,6 +19,7 @@ interface ActionSlidePanelProps {
       recommendedAction: string
       draftedMessage?: string  // old field name
       draftMessage?: string    // new field name
+      messageSubject?: string
       estimatedImpact?: string
       insights?: string        // old field name, fallback for detail
       confidence?: number
@@ -31,6 +32,9 @@ interface ActionSlidePanelProps {
   onClose: () => void
   onDismiss: (id: string) => void
   onMarkDone: (id: string) => void
+  // Demo only — when provided, shows "Send this email" instead of "Mark Done"
+  onSendEmail?: (id: string, message: string, subject: string) => void
+  sendingEmail?: boolean
 }
 
 // ─── Insight badge helper ─────────────────────────────────────────────────────
@@ -114,6 +118,8 @@ export default function ActionSlidePanel({
   action,
   onDismiss,
   onMarkDone,
+  onSendEmail,
+  sendingEmail = false,
 }: ActionSlidePanelProps) {
   if (!action) return null
 
@@ -224,15 +230,33 @@ export default function ActionSlidePanel({
           onClick={() => onDismiss(action.id)}
           className="text-xs text-gray-400 hover:text-gray-700 transition-colors px-3 py-2 border border-gray-200 hover:bg-white"
         >
-          Dismiss
+          {onSendEmail ? 'Skip' : 'Dismiss'}
         </button>
-        <button
-          onClick={() => onMarkDone(action.id)}
-          className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85"
-          style={{ backgroundColor: '#22C55E' }}
-        >
-          Mark Done
-        </button>
+        {onSendEmail ? (
+          <button
+            onClick={() => onSendEmail(action.id, draftMessage, c.messageSubject || 'Checking in on you')}
+            disabled={sendingEmail}
+            className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85 disabled:opacity-50 flex items-center gap-1.5"
+            style={{ backgroundColor: '#0063FF' }}
+          >
+            {sendingEmail ? (
+              <>
+                <span className="w-2.5 h-2.5 rounded-full border border-white border-t-transparent animate-spin" />
+                Sending…
+              </>
+            ) : (
+              'Send this email →'
+            )}
+          </button>
+        ) : (
+          <button
+            onClick={() => onMarkDone(action.id)}
+            className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85"
+            style={{ backgroundColor: '#22C55E' }}
+          >
+            Mark Done
+          </button>
+        )}
       </div>
     </div>
   )

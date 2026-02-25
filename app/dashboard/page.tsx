@@ -231,6 +231,7 @@ function DashboardContent() {
   // Dismissed IDs tracked locally so items disappear immediately on dismiss
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const [demoToast, setDemoToast] = useState<string | null>(null)
+  const [sendingEmail, setSendingEmail] = useState(false)
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
@@ -428,6 +429,28 @@ function DashboardContent() {
         body: JSON.stringify({ actionId })
       })
     } catch {}
+  }
+
+  const handleSendDemoEmail = async (actionId: string, message: string, subject: string) => {
+    setSendingEmail(true)
+    try {
+      const res = await fetch('/api/demo/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, subject }),
+      })
+      const json = await res.json()
+      if (json.sent) {
+        showDemoToast('Email sent! Check your inbox — and try replying to it.')
+        handleMarkDone(actionId)
+      } else {
+        showDemoToast('Could not send — try again')
+      }
+    } catch {
+      showDemoToast('Could not send — try again')
+    } finally {
+      setSendingEmail(false)
+    }
   }
 
   // ─── Derived state ────────────────────────────────────────────────────────────
@@ -1005,6 +1028,8 @@ function DashboardContent() {
                 onClose={() => setSelectedAction(null)}
                 onDismiss={handleDismiss}
                 onMarkDone={handleMarkDone}
+                onSendEmail={isDemo ? handleSendDemoEmail : undefined}
+                sendingEmail={sendingEmail}
               />
             )
             : null
