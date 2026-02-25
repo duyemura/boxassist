@@ -103,62 +103,7 @@ const DEMO_AGENTS = [
   },
 ]
 
-const DEMO_ACTIONS: ActionCard[] = [
-  {
-    id: 'demo-sarah',
-    content: {
-      memberId: 'demo-sarah',
-      memberName: 'Sarah Chen',
-      memberEmail: 'sarah@example.com',
-      riskLevel: 'high',
-      riskReason: '19 days absent',
-      recommendedAction: 'Send a personal check-in message',
-      draftedMessage: "Hey Sarah! Coach Marcus here — just wanted to check in. It's been a few weeks since we've seen you, and we miss having you around. Life gets busy, we totally get it. Is there anything we can do to make it easier for you to come back? We'd love to have you in class again. No pressure at all — just wanted to reach out.",
-      messageSubject: 'Checking in on you',
-      confidence: 0.92,
-      insights: 'Sarah has been a member for 14 months and previously checked in 3-4x per week. Her last visit was 19 days ago — the longest gap since joining.',
-      playbookName: 'At-Risk Monitor',
-    },
-    approved: null,
-    dismissed: null,
-  },
-  {
-    id: 'demo-derek',
-    content: {
-      memberId: 'demo-derek',
-      memberName: 'Derek Walsh',
-      memberEmail: 'derek@example.com',
-      riskLevel: 'medium',
-      riskReason: 'Renewal in 12 days',
-      recommendedAction: 'Reach out before renewal date',
-      draftedMessage: "Hey Derek! Just a heads up — your membership renews in about 12 days. Wanted to check in and see how things are going. If you have any questions about your plan or want to chat about your goals, I'm here. Looking forward to seeing you around!",
-      messageSubject: 'Your membership renews soon',
-      confidence: 0.78,
-      insights: "Derek's membership renews on March 6. He's been attending 1-2x/week but showed reduced frequency last month. Proactive outreach reduces churn at renewal.",
-      playbookName: 'Renewal At-Risk',
-    },
-    approved: null,
-    dismissed: null,
-  },
-  {
-    id: 'demo-priya',
-    content: {
-      memberId: 'demo-priya',
-      memberName: 'Priya Patel',
-      memberEmail: 'priya@example.com',
-      riskLevel: 'low',
-      riskReason: 'Frequency dropped to 1x/week',
-      recommendedAction: 'Friendly check-in',
-      draftedMessage: "Hi Priya! Noticed you've been coming in once a week lately — just wanted to check in and make sure everything's going well. If there's anything we can do to help you get more out of your membership, we're all ears. You've been doing great — keep it up!",
-      messageSubject: 'How are things going?',
-      confidence: 0.65,
-      insights: "Priya has been a member for 8 months. She typically attends 3x/week but has dropped to 1x/week over the past 3 weeks.",
-      playbookName: 'At-Risk Monitor',
-    },
-    approved: null,
-    dismissed: null,
-  },
-]
+// No static fallback demo actions — real members come from Run Analysis
 
 // ─── Tour tooltip ─────────────────────────────────────────────────────────────
 
@@ -475,10 +420,18 @@ function DashboardContent() {
   const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
 
   // Build actions list
-  // In demo mode: prefer API-provided pendingActions (which are personalised to the visitor)
-  // Fall back to hardcoded DEMO_ACTIONS only if the API hasn't loaded yet
+  // In demo mode: use API-provided pendingActions (visitor card + real results from Run Analysis)
+  // runResult.output.actions are appended after a manual scan
   const allActions: ActionCard[] = isDemo
-    ? (data?.pendingActions && data.pendingActions.length > 0 ? data.pendingActions : DEMO_ACTIONS)
+    ? [
+        ...(data?.pendingActions || []),
+        ...(runResult?.output?.actions?.map((a: any, i: number) => ({
+          id: `run-${i}`,
+          content: a,
+          approved: null,
+          dismissed: null,
+        })) || []),
+      ]
     : [
         ...(data?.pendingActions || []),
         ...(runResult?.output?.actions?.map((a: any, i: number) => ({
