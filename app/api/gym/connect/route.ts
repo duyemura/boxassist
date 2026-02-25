@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import { encrypt } from '@/lib/encrypt'
+import { encrypt, decrypt } from '@/lib/encrypt'
 import { createPushPressClient, getMemberStats } from '@/lib/pushpress'
 import { registerGymAgentsWebhook } from '@/lib/pushpress-sdk'
 
@@ -33,42 +33,82 @@ export async function POST(req: NextRequest) {
     // Encrypt API key before storing
     const encryptedApiKey = encrypt(apiKey)
 
-    // Upsert gym record
-    const { data: existing } = await supabaseAdmin
+    // ── Check if this API key is already registered to ANY gym ────────────────
+    // AES-256-CBC uses a random IV so the same plaintext produces a different
+    // ciphertext each time — we can't do a SQL lookup. Instead we fetch all gyms
+    // (small table at this scale) and decrypt to find a match.
+    const { data: allGyms } = await supabaseAdmin
       .from('gyms')
-      .select('id, webhook_id')
-      .eq('user_id', session.id)
-      .single()
+      .select('id, user_id, webhook_id, pushpress_api_key')
 
-    if (existing) {
-      const { error: updateError } = await supabaseAdmin
+    let claimedGym: { id: string; user_id: string; webhook_id: string | null } | null = null
+    for (const g of allGyms ?? []) {
+      try {
+        if (g.pushpress_api_key && decrypt(g.pushpress_api_key) === apiKey) {
+          claimedGym = g
+          break
+        }
+      } catch {
+        // corrupt / legacy row — skip
+      }
+    }
+
+    if (claimedGym) {
+      // API key already exists — transfer ownership to current user and refresh metadata
+      console.log(`[connect] API key already registered to gym ${claimedGym.id}, transferring to user ${session.id}`)
+      const { error: transferError } = await supabaseAdmin
         .from('gyms')
         .update({
-          pushpress_api_key: encryptedApiKey,
+          user_id: session.id,
+          pushpress_api_key: encryptedApiKey, // re-encrypt with fresh IV
           pushpress_company_id: companyId,
           gym_name: gymName,
           member_count: memberCount,
           connected_at: new Date().toISOString()
         })
-        .eq('user_id', session.id)
-      if (updateError) {
-        console.error('[connect] Gym update failed:', updateError)
-        return NextResponse.json({ error: `Failed to update gym: ${updateError.message}` }, { status: 500 })
+        .eq('id', claimedGym.id)
+      if (transferError) {
+        console.error('[connect] Gym transfer failed:', transferError)
+        return NextResponse.json({ error: `Failed to claim gym: ${transferError.message}` }, { status: 500 })
       }
     } else {
-      const { error: insertError } = await supabaseAdmin
+      // Check if current user already has a gym (different key — just update it)
+      const { data: existingForUser } = await supabaseAdmin
         .from('gyms')
-        .insert({
-          user_id: session.id,
-          pushpress_api_key: encryptedApiKey,
-          pushpress_company_id: companyId,
-          gym_name: gymName,
-          member_count: memberCount,
-          connected_at: new Date().toISOString()
-        })
-      if (insertError) {
-        console.error('[connect] Gym insert failed:', insertError)
-        return NextResponse.json({ error: `Failed to save gym: ${insertError.message}` }, { status: 500 })
+        .select('id')
+        .eq('user_id', session.id)
+        .single()
+
+      if (existingForUser) {
+        const { error: updateError } = await supabaseAdmin
+          .from('gyms')
+          .update({
+            pushpress_api_key: encryptedApiKey,
+            pushpress_company_id: companyId,
+            gym_name: gymName,
+            member_count: memberCount,
+            connected_at: new Date().toISOString()
+          })
+          .eq('user_id', session.id)
+        if (updateError) {
+          console.error('[connect] Gym update failed:', updateError)
+          return NextResponse.json({ error: `Failed to update gym: ${updateError.message}` }, { status: 500 })
+        }
+      } else {
+        const { error: insertError } = await supabaseAdmin
+          .from('gyms')
+          .insert({
+            user_id: session.id,
+            pushpress_api_key: encryptedApiKey,
+            pushpress_company_id: companyId,
+            gym_name: gymName,
+            member_count: memberCount,
+            connected_at: new Date().toISOString()
+          })
+        if (insertError) {
+          console.error('[connect] Gym insert failed:', insertError)
+          return NextResponse.json({ error: `Failed to save gym: ${insertError.message}` }, { status: 500 })
+        }
       }
     }
 
