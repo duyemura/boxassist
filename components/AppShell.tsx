@@ -10,7 +10,7 @@ interface Agent {
   skill_type?: string
 }
 
-type NavSection = 'agents' | 'skills' | 'connectors' | 'settings'
+type NavSection = 'agents' | 'members' | 'skills' | 'connectors' | 'settings'
 
 interface AppShellProps {
   isDemo: boolean
@@ -40,17 +40,11 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ReactNode; href?: 
     ),
   },
   {
-    id: 'skills',
-    label: 'Playbooks',
+    id: 'members',
+    label: 'Members',
+    href: '/dashboard/members',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" fill="currentColor" opacity=".8"/></svg>
-    ),
-  },
-  {
-    id: 'connectors',
-    label: 'Connectors',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="5" cy="10" r="3" fill="currentColor" opacity=".6"/><circle cx="15" cy="10" r="3" fill="currentColor" opacity=".6"/><path d="M8 10H12" stroke="currentColor" strokeWidth="1.5" opacity=".6"/><circle cx="5" cy="10" r="1.5" fill="currentColor"/><circle cx="15" cy="10" r="1.5" fill="currentColor"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3.5" fill="currentColor" opacity=".8"/><path d="M4 16.5C4 13.5 6.5 11.5 10 11.5s6 2 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".6"/></svg>
     ),
   },
   {
@@ -130,14 +124,16 @@ export default function AppShell({
               Demo
             </span>
           )}
+          {isDemo && (
+            <span className="text-xs hidden sm:inline ml-2" style={{ color: 'rgba(0,0,0,0.35)' }}>
+              Free · 2 min setup · No card needed
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
           {isDemo ? (
             <>
-              <span className="text-xs" style={{ color: 'rgba(0,0,0,0.4)' }}>
-                Exploring PushPress East
-              </span>
               <Link
                 href="/api/auth/logout"
                 className="text-xs transition-opacity hover:opacity-60"
@@ -165,33 +161,11 @@ export default function AppShell({
         </div>
       </header>
 
-      {/* Demo upgrade banner — prominent yellow strip below header */}
-      {isDemo && (
-        <div
-          className="flex items-center justify-center gap-4 px-4 py-2.5 flex-shrink-0 z-20"
-          style={{ backgroundColor: '#FFF9C4', borderBottom: '1px solid #F0E68C' }}
-        >
-          <span className="text-xs font-medium text-gray-700">
-            You&apos;re exploring a demo gym.
-          </span>
-          <Link
-            href={isPreviewMode ? '/connect' : '/login'}
-            className="text-xs font-bold px-4 py-1.5 transition-opacity hover:opacity-80 text-white"
-            style={{ backgroundColor: '#0063FF', borderRadius: 2 }}
-          >
-            Connect your PushPress gym →
-          </Link>
-          <span className="text-xs text-gray-400 hidden sm:inline">
-            Free · 2 min setup · No card needed
-          </span>
-        </div>
-      )}
-
       {/* Body row */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
 
         {/* Left nav — desktop only — dark sidebar */}
-        <nav className="hidden md:flex flex-col w-48 flex-shrink-0 py-3" style={{ backgroundColor: '#111827' }}>
+        <nav data-testid="desktop-nav" className="hidden md:flex flex-col w-48 flex-shrink-0 py-3" style={{ backgroundColor: '#111827' }}>
           {NAV_ITEMS.map(item => {
             const isActive = activeSection === item.id
             const inner = (
@@ -209,6 +183,19 @@ export default function AppShell({
               ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 }
               : undefined
             const hoverCls = `hover:bg-white/5`
+
+            if (item.href) {
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={`${cls} ${hoverCls}`}
+                  style={style}
+                >
+                  {inner}
+                </Link>
+              )
+            }
 
             return (
               <button

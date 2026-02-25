@@ -3,39 +3,53 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * Attribution cron — checks agent_tasks for member re-engagement.
+ *
+ * For tasks with status in ('resolved', 'awaiting_reply') and no outcome yet:
+ * - Check PushPress checkins API for that member since task creation
+ * - If checkin found: outcome='engaged', attributed_value = gym's avg membership price
+ * - If 14-day window expired with no checkin and no reply: outcome='unresponsive'
+ */
 export async function GET(req: NextRequest) {
-  // Verify cron secret
   const auth = req.headers.get('authorization')
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  // Get all pending actions within attribution window
-  const { data: pending, error: pendingErr } = await supabaseAdmin
-    .from('agent_run_actions')
-    .select('*, gyms(pushpress_api_key, pushpress_company_id)')
-    .eq('outcome', 'pending')
-    .lt('attribution_expires_at', new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString())
-    .gt('attribution_expires_at', new Date().toISOString())
+  // Get tasks that need attribution checking
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
 
-  if (pendingErr) {
-    console.error('Attribution fetch error:', pendingErr)
-    return NextResponse.json({ error: pendingErr.message }, { status: 500 })
+  const { data: tasks, error: tasksError } = await supabaseAdmin
+    .from('agent_tasks')
+    .select('*, gyms(pushpress_api_key, pushpress_company_id, avg_membership_price)')
+    .in('status', ['resolved', 'awaiting_reply'])
+    .is('outcome', null)
+    .not('member_email', 'is', null)
+    .gte('created_at', fourteenDaysAgo)
+
+  if (tasksError) {
+    console.error('[attribute-outcomes] Fetch error:', tasksError)
+    return NextResponse.json({ error: tasksError.message }, { status: 500 })
   }
 
-  if (!pending?.length) return NextResponse.json({ checked: 0, attributed: 0 })
+  if (!tasks?.length) return NextResponse.json({ checked: 0, attributed: 0, expired: 0 })
 
   let attributed = 0
+  let expired = 0
 
-  for (const action of pending) {
-    const gym = (action as any).gyms
+  for (const task of tasks) {
+    const gym = (task as any).gyms
     if (!gym?.pushpress_api_key) continue
 
+    const taskCreatedAt = new Date(task.created_at)
+    const windowExpired = Date.now() - taskCreatedAt.getTime() > 14 * 24 * 60 * 60 * 1000
+
     try {
-      // Check if member checked in since action was created
+      // Check if member checked in since task was created
       const checkinRes = await fetch(
-        `https://api.pushpress.com/v3/checkins?company_id=${gym.pushpress_company_id}&client_id=${action.member_id}&after=${action.created_at}&limit=1`,
-        { headers: { 'x-api-key': gym.pushpress_api_key } }
+        `https://api.pushpress.com/v3/checkins?company_id=${gym.pushpress_company_id}&client_id=${task.member_id ?? ''}&after=${task.created_at}&limit=1`,
+        { headers: { 'API-KEY': gym.pushpress_api_key } }
       )
       const checkins = await checkinRes.json()
 
@@ -44,47 +58,38 @@ export async function GET(req: NextRequest) {
         (Array.isArray(checkins) && checkins.length > 0)
 
       if (hasCheckin) {
-        // Member came back! Attribute success.
-        const membershipValue = 130 // TODO: pull from gym settings
+        const membershipValue = gym.avg_membership_price ?? 150
         await supabaseAdmin
-          .from('agent_run_actions')
+          .from('agent_tasks')
           .update({
-            outcome: 'checkin',
-            outcome_at: checkins.data?.[0]?.created_at ?? new Date().toISOString(),
-            actual_value_usd: membershipValue,
+            outcome: 'engaged',
+            outcome_reason: 'checkin_after_outreach',
+            outcome_score: 80,
+            attributed_value: membershipValue,
+            attributed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
-          .eq('id', action.id)
+          .eq('id', task.id)
         attributed++
-      } else if (new Date(action.attribution_expires_at) < new Date()) {
-        // Window expired, no outcome
+      } else if (windowExpired) {
         await supabaseAdmin
-          .from('agent_run_actions')
-          .update({ outcome: 'no_outcome' })
-          .eq('id', action.id)
+          .from('agent_tasks')
+          .update({
+            outcome: 'unresponsive',
+            outcome_reason: 'no_checkin_within_attribution_window',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', task.id)
+        expired++
       }
     } catch (e) {
-      console.error('Attribution check failed for action', action.id, e)
+      console.error('[attribute-outcomes] Check failed for task', task.id, e)
     }
   }
 
-  // Update aggregate attributed_value on each affected run
-  const { data: attributedActions } = await supabaseAdmin
-    .from('agent_run_actions')
-    .select('run_id, actual_value_usd')
-    .eq('outcome', 'checkin')
+  console.log(`[attribute-outcomes] checked=${tasks.length} attributed=${attributed} expired=${expired}`)
 
-  if (attributedActions?.length) {
-    const byRun: Record<string, number> = {}
-    for (const r of attributedActions) {
-      byRun[r.run_id] = (byRun[r.run_id] ?? 0) + (r.actual_value_usd ?? 0)
-    }
-    for (const [runId, value] of Object.entries(byRun)) {
-      await supabaseAdmin
-        .from('agent_runs')
-        .update({ attributed_value_usd: value, outcome_status: 'attributed' })
-        .eq('id', runId)
-    }
-  }
-
-  return NextResponse.json({ checked: pending.length, attributed })
+  return NextResponse.json({ checked: tasks.length, attributed, expired })
 }
+
+export const POST = GET

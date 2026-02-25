@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { handleInboundReply } from '@/lib/reply-agent'
 import { RetentionAgent } from '@/lib/agents/RetentionAgent'
 import * as dbTasks from '@/lib/db/tasks'
 import * as dbEvents from '@/lib/db/events'
 import * as dbCommands from '@/lib/db/commands'
 import Anthropic from '@anthropic-ai/sdk'
+import { SONNET } from '@/lib/models'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
 const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -18,7 +18,7 @@ const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }
  * separately via resend.emails.receiving.get(emailId).
  *
  * Resend sends: { type: "email.received", data: { from, to, subject, email_id, ... } }
- * Reply-To address format: reply+{actionId}@lunovoria.resend.app
+ * Reply-To address format: reply+{taskId}@lunovoria.resend.app
  */
 export async function POST(req: NextRequest) {
   let body: any
@@ -53,15 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // Extract actionId from reply+{actionId}@lunovoria.resend.app
+  // Extract taskId from reply+{taskId}@lunovoria.resend.app
   const match = toAddress.match(/reply\+([a-zA-Z0-9_-]+)@/)
   if (!match) {
-    console.log('inbound-email: no reply+ actionId found in:', toAddress)
+    console.log('inbound-email: no reply+ taskId found in:', toAddress)
     return NextResponse.json({ ok: true })
   }
 
-  const actionId = match[1]
-  console.log(`inbound-email: actionId=${actionId}`)
+  const taskId = match[1]
+  console.log(`inbound-email: taskId=${taskId}`)
 
   // Fetch body — Resend's email.received payload never includes the body text.
   // Must use resend.emails.receiving.get(emailId) — the receiving-specific endpoint.
@@ -88,8 +88,8 @@ export async function POST(req: NextRequest) {
   const bodyText = text || stripHtml(html)
 
   if (!bodyText.trim()) {
-    console.log(`inbound-email: empty body for actionId=${actionId} email_id=${emailId}`)
-    return NextResponse.json({ ok: true, skipped: true, reason: 'empty_body', debug: { actionId, emailId } })
+    console.log(`inbound-email: empty body for taskId=${taskId} email_id=${emailId}`)
+    return NextResponse.json({ ok: true, skipped: true, reason: 'empty_body', debug: { taskId, emailId } })
   }
 
   // Strip quoted reply text — only take the new part above the quote line
@@ -105,42 +105,14 @@ export async function POST(req: NextRequest) {
   const fromName = nameMatch ? nameMatch[1].trim() : from.split('@')[0]
   const fromEmail = from.match(/<(.+?)>/)?.[1] ?? from
 
-  console.log(`inbound-email: firing reply agent for action=${actionId} member="${fromName}" reply="${cleanText.slice(0, 80)}"`)
+  console.log(`inbound-email: routing reply to RetentionAgent for task=${taskId} member="${fromName}" reply="${cleanText.slice(0, 80)}"`)
 
-  // Await the reply agent so errors surface in logs
+  // Route reply to RetentionAgent
   try {
-    await handleInboundReply({
-      actionId,
-      memberReply: cleanText.trim(),
-      memberEmail: fromEmail,
-      memberName: fromName,
-    })
-    console.log(`inbound-email: handleInboundReply completed for ${actionId}`)
-  } catch (err: any) {
-    console.error(`inbound-email: handleInboundReply FAILED:`, err?.message)
-  }
+    // Look up the task directly
+    const task = await dbTasks.getTask(taskId)
 
-  // ── Phase 2: Also run RetentionAgent (dual-running until Phase 3) ──────────
-  // We need the shadow task ID to route the reply to the agent.
-  // actionId here is the replyToken — look up the shadow task by legacy_action_id or reply_token.
-  try {
-    // Look up the shadow task that was created during Phase 1 dual-write
-    const { data: taskRow } = await (async () => {
-      const { createClient } = await import('@supabase/supabase-js')
-      const sb = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { autoRefreshToken: false, persistSession: false } },
-      )
-      return sb
-        .from('agent_tasks')
-        .select('id, gym_id')
-        .or(`legacy_action_id.eq.${actionId}`)
-        .eq('assigned_agent', 'retention')
-        .single()
-    })()
-
-    if (taskRow?.id) {
+    if (task) {
       const retentionAgent = new RetentionAgent({
         db: {
           getTask: dbTasks.getTask,
@@ -168,7 +140,7 @@ export async function POST(req: NextRequest) {
         claude: {
           evaluate: async (system, prompt) => {
             const response = await anthropicClient.messages.create({
-              model: 'claude-sonnet-4-5',
+              model: SONNET,
               max_tokens: 600,
               system,
               messages: [{ role: 'user', content: prompt }],
@@ -179,20 +151,20 @@ export async function POST(req: NextRequest) {
       })
 
       await retentionAgent.handleReply({
-        taskId: taskRow.id,
+        taskId: task.id,
         memberEmail: fromEmail,
         replyContent: cleanText.trim(),
-        gymId: taskRow.gym_id,
+        gymId: task.gym_id,
       })
-      console.log(`inbound-email: RetentionAgent.handleReply completed for task ${taskRow.id}`)
+      console.log(`inbound-email: RetentionAgent.handleReply completed for task ${task.id}`)
+    } else {
+      console.warn(`inbound-email: task ${taskId} not found — reply dropped`)
     }
-  } catch (retentionErr: any) {
-    // Log but don't fail the webhook — handleInboundReply already ran
-    console.error(`inbound-email: RetentionAgent FAILED (non-fatal):`, retentionErr?.message)
+  } catch (err: any) {
+    console.error(`inbound-email: RetentionAgent FAILED:`, err?.message)
   }
-  // ── End Phase 2 ────────────────────────────────────────────────────────────
 
-  return NextResponse.json({ ok: true, processed: true, actionId, from: fromEmail })
+  return NextResponse.json({ ok: true, processed: true, taskId, from: fromEmail })
 }
 
 function stripHtml(html: string): string {

@@ -6,6 +6,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { SONNET, HAIKU } from './models'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ Request: "${message}"
 Reply with ONLY the category name, nothing else.`
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 20,
     messages: [{ role: 'user', content: classificationPrompt }],
   })
@@ -115,7 +116,7 @@ Reply with ONLY the category name, nothing else.`
 export async function claudeRespond(
   systemPrompt: string,
   userMessage: string,
-  model: 'claude-haiku-4-5' | 'claude-sonnet-4-5' = 'claude-sonnet-4-5',
+  model: typeof HAIKU | typeof SONNET = SONNET,
 ): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 

@@ -5,42 +5,35 @@ export interface ActionValue {
   confidence: 'high' | 'medium' | 'low'
 }
 
-const DEFAULT_VALUES = {
-  member_reengaged: 130,    // 1 month avg membership
-  member_won_back: 390,     // 3 months (acquisition cost avoided)
-  lead_converted: 260,      // 2 months LTV
-  payment_recovered: 0,     // set from actual amount
-  equipment_alert: 0,
-  other: 0,
-}
+const DEFAULT_MEMBERSHIP_VALUE = 150
 
 export function estimateActionValue(
   actionType: ActionValue['actionType'],
-  membershipValue: number = 130,
+  membershipValue?: number,
   actualAmount?: number
 ): ActionValue {
-  const base = membershipValue / 130  // scale from default
+  const mv = membershipValue ?? DEFAULT_MEMBERSHIP_VALUE
 
   switch (actionType) {
     case 'member_reengaged':
       return {
         actionType,
-        estimatedValue: Math.round(DEFAULT_VALUES.member_reengaged * base),
-        basis: `1 month avg membership ($${membershipValue})`,
+        estimatedValue: mv,
+        basis: `1 month membership ($${mv})`,
         confidence: 'medium',
       }
     case 'member_won_back':
       return {
         actionType,
-        estimatedValue: Math.round(DEFAULT_VALUES.member_won_back * base),
+        estimatedValue: mv * 3,
         basis: `3 months avg membership — acquisition cost avoided`,
         confidence: 'medium',
       }
     case 'lead_converted':
       return {
         actionType,
-        estimatedValue: Math.round(DEFAULT_VALUES.lead_converted * base),
-        basis: `2 months estimated LTV ($${membershipValue}/mo)`,
+        estimatedValue: mv * 2,
+        basis: `2 months estimated LTV ($${mv}/mo)`,
         confidence: 'medium',
       }
     case 'payment_recovered':

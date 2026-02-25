@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { HAIKU } from '@/lib/models'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -36,7 +37,7 @@ Generate the complete skill definition as JSON.`
 
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model: HAIKU,
       max_tokens: 800,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],

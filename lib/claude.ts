@@ -11,6 +11,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { AtRiskMember } from './pushpress'
+import { SONNET } from './models'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -83,7 +84,7 @@ export async function runAgentWithMCP(opts: MCPAgentOptions): Promise<MCPAgentRe
     // Agentic loop
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: SONNET,
         max_tokens: 4000,
         system: systemPrompt,
         tools: anthropicTools,
@@ -229,7 +230,7 @@ Output this exact JSON structure:
 }`
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
+    model: SONNET,
     max_tokens: 4000,
     messages: [{ role: 'user', content: userPrompt }],
     system: systemPrompt

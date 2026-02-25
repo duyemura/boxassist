@@ -19,6 +19,28 @@ export default function SettingsPanel({ data, isDemo, gmailConnected, onDisconne
   const [membershipValue, setMembershipValue] = useState(data?.gym?.avg_membership_value ?? 130)
   const [editingValue, setEditingValue] = useState(false)
   const [savingValue, setSavingValue] = useState(false)
+  const [autopilotEnabled, setAutopilotEnabled] = useState(data?.gym?.autopilot_enabled ?? false)
+  const [autopilotLoading, setAutopilotLoading] = useState(false)
+  const [shadowModeEnd, setShadowModeEnd] = useState<string | null>(null)
+
+  const handleToggleAutopilot = async () => {
+    setAutopilotLoading(true)
+    try {
+      const res = await fetch('/api/settings/autopilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autopilotEnabled }),
+      })
+      const result = await res.json()
+      if (result.ok) {
+        setAutopilotEnabled(result.autopilot_enabled)
+        setShadowModeEnd(result.shadow_mode_ends ?? null)
+      }
+    } catch (err) {
+      console.error('Failed to toggle autopilot:', err)
+    }
+    setAutopilotLoading(false)
+  }
 
   const handleDisconnect = async () => {
     if (!confirm('This removes your PushPress connection and resets your agents. Are you sure?')) return
@@ -133,6 +155,44 @@ export default function SettingsPanel({ data, isDemo, gmailConnected, onDisconne
           </div>
         </div>
       </section>
+
+      {/* Autopilot Mode */}
+      {!isDemo && data?.gym && (
+        <section>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Autopilot Mode</p>
+          <div className="border border-gray-100">
+            <div className="flex items-start justify-between px-4 py-3">
+              <div className="flex-1 mr-4">
+                <p className="text-xs font-medium text-gray-900">Auto-send agent messages</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  When enabled, agents send messages without waiting for your approval. Escalations always require review.
+                </p>
+                {autopilotEnabled && shadowModeEnd && new Date(shadowModeEnd) > new Date() && (
+                  <p className="text-xs mt-1.5" style={{ color: '#0063FF' }}>
+                    Shadow mode active until {new Date(shadowModeEnd).toLocaleDateString()} — messages still require approval while you build trust.
+                  </p>
+                )}
+                {autopilotEnabled && (!shadowModeEnd || new Date(shadowModeEnd) <= new Date()) && (
+                  <p className="text-xs text-green-600 mt-1.5">
+                    Active — agents are sending up to 10 messages per day automatically.
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={handleToggleAutopilot}
+                disabled={autopilotLoading}
+                className="relative inline-flex h-5 w-9 shrink-0 items-center transition-colors disabled:opacity-50"
+                style={{ backgroundColor: autopilotEnabled ? '#0063FF' : '#D1D5DB' }}
+              >
+                <span
+                  className="inline-block h-3.5 w-3.5 bg-white transition-transform"
+                  style={{ transform: autopilotEnabled ? 'translateX(16px)' : 'translateX(2px)' }}
+                />
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Integrations */}
       <section>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { HAIKU } from '@/lib/models'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -28,7 +29,7 @@ ${message}`
 
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5',
+      model: HAIKU,
       max_tokens: 400,
       system,
       messages: [{ role: 'user', content: prompt }],

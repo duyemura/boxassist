@@ -58,6 +58,69 @@ export async function saveKPISnapshot(
   }
 }
 
+// ── getMonthlyRetentionROI ────────────────────────────────────────────────────
+
+export interface MonthlyRetentionROI {
+  tasksCreated: number
+  messagesSent: number
+  membersRetained: number
+  revenueRetained: number
+  membersChurned: number
+  conversationsActive: number
+  escalations: number
+}
+
+export async function getMonthlyRetentionROI(
+  gymId: string,
+  month?: string,
+): Promise<MonthlyRetentionROI> {
+  const now = new Date()
+  const monthStart = month
+    ? new Date(`${month}-01T00:00:00Z`)
+    : new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1)
+
+  const startIso = monthStart.toISOString()
+  const endIso = monthEnd.toISOString()
+
+  // All tasks created this month for this gym
+  const { data: tasks } = await supabaseAdmin
+    .from('agent_tasks')
+    .select('id, status, outcome, attributed_value, created_at')
+    .eq('gym_id', gymId)
+    .gte('created_at', startIso)
+    .lt('created_at', endIso)
+
+  const allTasks = tasks ?? []
+
+  // Count messages sent (conversation entries with role='agent')
+  const taskIds = allTasks.map(t => t.id)
+  let messagesSent = 0
+  if (taskIds.length > 0) {
+    const { count } = await supabaseAdmin
+      .from('task_conversations')
+      .select('*', { count: 'exact', head: true })
+      .in('task_id', taskIds)
+      .eq('role', 'agent')
+    messagesSent = count ?? 0
+  }
+
+  const retained = allTasks.filter(t => t.outcome === 'engaged' || t.outcome === 'recovered')
+  const churned = allTasks.filter(t => t.outcome === 'churned')
+  const active = allTasks.filter(t => t.status === 'awaiting_reply' || t.status === 'in_progress')
+  const escalated = allTasks.filter(t => t.status === 'escalated')
+
+  return {
+    tasksCreated: allTasks.length,
+    messagesSent,
+    membersRetained: retained.length,
+    revenueRetained: retained.reduce((sum, t) => sum + (t.attributed_value ?? 0), 0),
+    membersChurned: churned.length,
+    conversationsActive: active.length,
+    escalations: escalated.length,
+  }
+}
+
 // ── getLatestKPISnapshot ──────────────────────────────────────────────────────
 
 export async function getLatestKPISnapshot(gymId: string): Promise<KPISnapshot | null> {

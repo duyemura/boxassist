@@ -10,7 +10,7 @@ import { vi } from 'vitest'
 vi.mock('@supabase/supabase-js', () => {
   const chain = () => {
     const obj: any = {}
-    const methods = ['select','insert','update','delete','eq','is','or','not','gte','lte','single','limit','order']
+    const methods = ['select','insert','update','delete','upsert','eq','neq','is','or','not','in','gte','lt','lte','single','limit','order','filter']
     methods.forEach(m => { obj[m] = vi.fn().mockReturnValue(obj) })
     obj.then = (resolve: any) => resolve({ data: null, error: null })
     return obj

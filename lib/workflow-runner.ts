@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendEmail } from './resend'
+import { HAIKU } from './models'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -261,7 +262,7 @@ async function executeBranch(run: WorkflowRun, step: WorkflowStep, workflow: Wor
   const branchList = branches.map((b, i) => `${i + 1}. ${b.label} → ${b.next}`).join('\n')
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 200,
     system: 'You are a workflow decision engine. Pick the best branch based on context. Respond with ONLY the next step ID, nothing else.',
     messages: [{
@@ -524,7 +525,7 @@ async function draftOutreachMessage({
   const prompt = stepPrompt ?? `Write a warm, personal message to ${memberName} as part of this goal: ${goal}. ${playbookGoal ?? ''}`
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 600,
     system: `You are a retention agent for ${gymName}. Write short, warm, personal messages. Never sound like a template. Always use first name. 3-4 sentences max.`,
     messages: [{

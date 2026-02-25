@@ -5,6 +5,7 @@ import { createPushPressClient, getAtRiskMembers } from '@/lib/pushpress'
 import { runAtRiskDetector } from '@/lib/claude'
 import { decrypt } from '@/lib/encrypt'
 import { calcCost, calcTimeSaved } from '@/lib/cost'
+import { createTask } from '@/lib/db/tasks'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -184,15 +185,34 @@ export async function POST(req: NextRequest) {
     // Run Claude analysis
     const agentOutput = await runAtRiskDetector(gym.gym_name, membersForAnalysis, tier)
     
-    // Store actions (legacy agent_actions table)
+    // Store actions as agent_tasks
     for (const action of agentOutput.actions) {
-      await supabaseAdmin.from('agent_actions').insert({
-        agent_run_id: run!.id,
-        action_type: 'message_draft',
-        content: action,
-        approved: null,
-        dismissed: null
-      })
+      try {
+        await createTask({
+          gymId: gym.id,
+          assignedAgent: 'retention',
+          taskType: 'churn_risk',
+          memberEmail: action.memberEmail ?? undefined,
+          memberName: action.memberName ?? undefined,
+          goal: action.recommendedAction ?? 'Re-engage member',
+          context: {
+            memberId: action.memberId,
+            riskLevel: action.riskLevel,
+            riskReason: action.riskReason,
+            recommendedAction: action.recommendedAction,
+            draftMessage: action.draftedMessage,
+            messageSubject: action.messageSubject,
+            confidence: action.confidence,
+            insightDetail: action.insights,
+            playbookName: action.playbookName,
+            estimatedImpact: action.estimatedImpact,
+            runId: run!.id,
+          },
+          requiresApproval: true,
+        })
+      } catch (err: any) {
+        console.error('Failed to create agent_task:', err?.message)
+      }
     }
 
     // ── Cost tracking ──────────────────────────────────────────────────────
@@ -226,29 +246,6 @@ export async function POST(req: NextRequest) {
         completed_at: new Date().toISOString(),
       })
       .eq('id', run!.id)
-
-    // Record per-action rows for attribution tracking
-    if (agentOutput.actions.length > 0) {
-      const actionRows = agentOutput.actions.map((action: any) => ({
-        run_id: run!.id,
-        gym_id: gym.id,
-        member_id: action.memberId ?? 'unknown',
-        member_email: action.memberEmail ?? null,
-        action_type: 'message_sent',
-        skill_slug: 'at-risk-early-warning',
-        message_subject: action.messageSubject ?? null,
-        message_body: action.draftedMessage ?? null,
-        estimated_value_usd: 130,
-        outcome: 'pending',
-        attribution_window_days: 14,
-        attribution_expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      }))
-      // Best-effort — table may not exist yet, don't fail the run
-      await supabaseAdmin.from('agent_run_actions').insert(actionRows).then(
-        () => {},
-        (err: any) => console.warn('agent_run_actions insert skipped:', err?.message)
-      )
-    }
     // ──────────────────────────────────────────────────────────────────────
 
     // Update autopilot stats

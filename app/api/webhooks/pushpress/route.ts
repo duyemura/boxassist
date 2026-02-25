@@ -208,6 +208,58 @@ async function processWebhookAsync(rawBody: string) {
     console.error('[webhook] GMAgent.handleEvent error:', err)
   }
 
+  // ── Win-back recovery attribution ─────────────────────────────────────────
+  // When a cancelled member reactivates, check for a win_back task to attribute
+  if (eventType === 'customer.status.changed') {
+    const newStatus = (eventData.newStatus ?? eventData.status) as string | undefined
+    const previousStatus = eventData.previousStatus as string | undefined
+    const customerId = (eventData.customerId ?? eventData.id) as string | undefined
+
+    if (newStatus === 'active' && previousStatus === 'cancelled' && customerId) {
+      try {
+        const { data: winBackTask } = await supabaseAdmin
+          .from('agent_tasks')
+          .select('id, gym_id, context')
+          .eq('gym_id', gym.id)
+          .eq('task_type', 'win_back')
+          .is('outcome', null)
+          .or(`context->>memberId.eq.${customerId},member_email.eq.${eventData.customerEmail ?? ''}`)
+          .limit(1)
+          .single()
+
+        if (winBackTask) {
+          // Fetch gym's avg membership price for attribution
+          const { data: gymData } = await supabaseAdmin
+            .from('gyms')
+            .select('avg_membership_price')
+            .eq('id', gym.id)
+            .single()
+
+          const membershipValue = gymData?.avg_membership_price ?? 150
+          const recoveryValue = membershipValue * 3
+
+          await supabaseAdmin
+            .from('agent_tasks')
+            .update({
+              status: 'resolved',
+              outcome: 'recovered',
+              outcome_reason: 'member_reactivated_after_win_back',
+              outcome_score: 95,
+              attributed_value: recoveryValue,
+              attributed_at: new Date().toISOString(),
+              resolved_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', winBackTask.id)
+
+          console.log(`[webhook] Win-back attributed! task=${winBackTask.id} value=$${recoveryValue}`)
+        }
+      } catch (err) {
+        console.error('[webhook] win-back attribution error:', err)
+      }
+    }
+  }
+
   console.log(`[webhook] ${eventType} done — ${runsTriggered} agents fired`)
 }
 

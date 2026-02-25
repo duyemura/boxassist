@@ -52,13 +52,17 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
         response?.resultArray ??
         (Array.isArray(response) ? response : [])
       if (!Array.isArray(members)) members = []
-    } catch (e) {
+    } catch (e: any) {
+      console.error('[pushpress] /customers fetch failed:', e?.message)
       members = []
     }
 
     if (members.length === 0) {
-      // Return sample data for demo purposes
-      return getSampleAtRiskMembers()
+      if (process.env.DEMO_MODE === 'true') {
+        return getSampleAtRiskMembers()
+      }
+      console.warn('[pushpress] getAtRiskMembers: no members returned from API')
+      return []
     }
 
     const now = new Date()
@@ -117,13 +121,19 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
     }
 
     if (atRiskMembers.length === 0) {
-      return getSampleAtRiskMembers()
+      if (process.env.DEMO_MODE === 'true') {
+        return getSampleAtRiskMembers()
+      }
+      return []
     }
 
     return atRiskMembers.sort((a, b) => b.riskScore - a.riskScore).slice(0, 20)
   } catch (error) {
-    console.error('Error fetching at-risk members:', error)
-    return getSampleAtRiskMembers()
+    console.error('[pushpress] getAtRiskMembers error:', error)
+    if (process.env.DEMO_MODE === 'true') {
+      return getSampleAtRiskMembers()
+    }
+    return []
   }
 }
 

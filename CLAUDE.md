@@ -16,11 +16,15 @@ npm run lint         # eslint
 
 ## Vision & North Star
 
-Read `docs/VISION.md` before making architectural decisions. Key points:
+Read `docs/VISION.md` before making architectural decisions.
+
+Key points:
 - **North star:** members retained per gym per month — every decision maps to this
 - **The owner's job:** approve or escalate — agents handle everything else
-- **Distribution:** PushPress partnership is the growth path, not direct acquisition
+- **Distribution:** PushPress partnership (3,000 gyms) is the growth path, not direct acquisition
 - **The demo** is the top of funnel — visitor gets a real email in their inbox in 30s
+- **Pricing anchor:** replacing a $2,000-4,000/month marketing agency at $97-197/month
+- **The moat:** closed-loop ROI attribution + cross-gym learning — no current vendor can do this
 
 ## Tech Stack
 
@@ -29,7 +33,8 @@ Read `docs/VISION.md` before making architectural decisions. Key points:
 - **AI:** Anthropic Claude — `claude-sonnet-4-6` for reasoning, `claude-haiku-4-5-20251001` for drafting/humanizing
 - **Email:** Resend (outbound + inbound webhooks)
 - **Deployment:** Vercel — push to `main` → auto-deploy
-- **Tests:** Vitest — TDD on all agent classes
+- **Tests:** Vitest (unit/API) + Playwright (E2E) — TDD on all agent classes
+- **AI Models:** Centralized in `lib/models.ts` — `SONNET` and `HAIKU` constants (never hardcode model strings)
 
 ## Project Structure
 
@@ -39,7 +44,8 @@ app/dashboard/        # Main UI pages
 components/           # React components
 lib/agents/           # BaseAgent, GMAgent, RetentionAgent
 lib/db/               # DB helpers (commands, events, chat, kpi, tasks)
-lib/__tests__/        # All tests live here
+lib/__tests__/        # Vitest unit + API tests
+e2e/                  # Playwright E2E browser tests
 lib/workflow-runner.ts
 lib/reply-agent.ts
 lib/pushpress-sdk.ts
@@ -70,9 +76,40 @@ WORKFLOWS.md          # Workflow engine design doc
 - Micro-labels: `text-[10px] font-semibold tracking-widest uppercase text-gray-400`
 - Focus: `focus:outline-none focus:border-blue-400` (no `focus:ring`)
 
-## Testing
+## Testing — MANDATORY
 
-Tests live in `lib/__tests__/`. Agent classes are TDD. Run `npm run test` before finishing any agent/lib changes.
+**Every code change must include tests. No exceptions.**
+
+### Rules
+- **New API endpoint?** Write a Vitest unit test in `lib/__tests__/` that tests auth, happy path, and error cases
+- **New UI component?** Write a Playwright E2E test in `e2e/` that verifies it renders and interactive elements work
+- **Bug fix?** Write a failing test first, then fix the bug (red-green)
+- **Refactor?** Run existing tests before AND after to confirm no regressions
+- **New lib function?** TDD — write the test first
+
+### Test Stack
+- **Vitest** (`npm run test`) — unit tests for `lib/`, API route handlers, agent classes. Tests in `lib/__tests__/`
+- **Playwright** (`npm run test:e2e`) — browser E2E tests against localhost. Tests in `e2e/`. Run with `--headed` to watch
+- **Coverage** (`npm run test:coverage`) — V8 provider, target 80%+
+
+### Running Tests
+```bash
+npm run test              # Vitest unit tests (all)
+npm run test:watch        # Vitest watch mode
+npm run test:e2e          # Playwright E2E (headless)
+npm run test:e2e:headed   # Playwright E2E (visible browser — watch it run)
+npm run test:coverage     # Vitest with coverage report
+```
+
+### Patterns
+- Factory functions: `makeTask()`, `makeDeps()`, `makeRequest()` for test fixtures
+- Mock Supabase/Anthropic/Resend via `vi.mock()` in unit tests
+- Playwright tests mock API routes via `page.route()` for deterministic data
+- Use `data-testid` attributes on interactive UI elements for stable Playwright selectors
+
+### Skills
+- `tdd-guide` skill installed — use for TDD workflow guidance
+- `playwright-e2e-testing` skill installed — use for Playwright patterns and best practices
 
 ## Environment Variables
 

@@ -17,6 +17,9 @@ import SkillEditor from '@/components/SkillEditor'
 import AgentEditor from '@/components/AgentEditor'
 import InstagramConnector from '@/components/InstagramConnector'
 import GMChat from '@/components/GMChat'
+import RetentionScorecard from '@/components/RetentionScorecard'
+import ApprovalQueue from '@/components/ApprovalQueue'
+import ActivityFeed from '@/components/ActivityFeed'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -234,7 +237,7 @@ function DashboardContent() {
 
   const selectAction = (action: ActionCard | null) => setSelectedAction(action)
   const [mobileTab, setMobileTab] = useState<'agents' | 'attention' | 'settings'>('agents')
-  const [activeSection, setActiveSection] = useState<'agents' | 'skills' | 'connectors' | 'settings'>('agents')
+  const [activeSection, setActiveSection] = useState<'agents' | 'members' | 'skills' | 'connectors' | 'settings'>('agents')
   const [instagramConnected, setInstagramConnected] = useState<boolean>(false)
   const [instagramUsername, setInstagramUsername] = useState<string | null>(null)
   const [selectedConnector, setSelectedConnector] = useState<string | null>(null)
@@ -914,14 +917,17 @@ function DashboardContent() {
         onSelectAgent={setSelectedAgentId}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
-        statsBar={
-          <CommandBar isDemo={isDemo} agents={autopilots} scanning={running} memberCount={memberCount} />
-        }
+        statsBar={<RetentionScorecard />}
         rightPanel={
-          <ToDoList
-            items={todoItems}
-            onSelectItem={handleSelectToDoItem}
-          />
+          <div className="flex flex-col h-full">
+            <ToDoList
+              items={todoItems}
+              onSelectItem={handleSelectToDoItem}
+            />
+            <div className="border-t border-gray-100">
+              <ActivityFeed />
+            </div>
+          </div>
         }
         slidePanel={
           selectedAction

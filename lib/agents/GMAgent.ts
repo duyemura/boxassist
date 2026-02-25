@@ -379,7 +379,19 @@ export class GMAgent extends BaseAgent {
    * Uses deps.claude to generate the draft.
    */
   async draftMessage(insight: GymInsight, gymContext: GymContext): Promise<string> {
-    const system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. The message should feel like it's coming from a real person who knows the member.
+    // Use a different prompt for win-back messages
+    const isWinBack = insight.type === 'win_back'
+
+    const system = isWinBack
+      ? `You are a message drafting assistant for a gym owner. A member just cancelled. Write a genuine, personal message that:
+- Acknowledges the cancellation directly (don't pretend it didn't happen)
+- References their history if available ("you've been with us for X months")
+- Is genuine, not salesy — no discounts, no hard sells
+- Leaves the door open without pressure
+- Feels like it's from a real person, not a business
+
+Keep it 2-3 sentences. No emojis. Use first names.`
+      : `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. The message should feel like it's coming from a real person who knows the member.
 
 Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use first names. Be direct but caring.`
 
@@ -394,7 +406,7 @@ Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use f
 
     const prompt = `${insightContext}
 
-Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}. 
+Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}.
 Return ONLY the message text — no subject line, no explanation, just the message.`
 
     const draft = await this.deps.claude.evaluate(system, prompt)
@@ -411,6 +423,9 @@ Return ONLY the message text — no subject line, no explanation, just the messa
       newStatus?: string
       previousStatus?: string
       monthlyRevenue?: number
+      memberSince?: string
+      lastCheckinAt?: string
+      totalCheckins?: number
     }
 
     const newStatus = data.newStatus ?? ''
@@ -419,6 +434,12 @@ Return ONLY the message text — no subject line, no explanation, just the messa
     const monthlyRevenue = data.monthlyRevenue ?? 0
 
     if (newStatus === 'cancelled') {
+      // Calculate tenure for richer context
+      const tenure = data.memberSince
+        ? Math.floor((Date.now() - new Date(data.memberSince).getTime()) / (30 * 24 * 60 * 60 * 1000))
+        : null
+      const tenureStr = tenure !== null ? `${tenure} month${tenure !== 1 ? 's' : ''}` : 'unknown tenure'
+
       const insight: GymInsight = {
         type: 'win_back',
         priority: 'high',
@@ -426,9 +447,9 @@ Return ONLY the message text — no subject line, no explanation, just the messa
         memberName,
         memberEmail,
         title: `${memberName} just cancelled their membership`,
-        detail: `${memberName} cancelled. They were paying $${monthlyRevenue}/mo. A timely personal message can win them back.`,
-        recommendedAction: 'Send a personal win-back message within 24 hours',
-        estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue}/mo recoverable` : 'Revenue at risk',
+        detail: `${memberName} cancelled after ${tenureStr}. They were paying $${monthlyRevenue}/mo.${data.lastCheckinAt ? ` Last visit: ${new Date(data.lastCheckinAt).toLocaleDateString()}.` : ''} A timely personal message can win them back.`,
+        recommendedAction: 'Send a personal win-back message within 2 hours',
+        estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue * 3}/recovery value (3 months)` : 'Revenue at risk',
       }
 
       if (this._createInsightTask) {

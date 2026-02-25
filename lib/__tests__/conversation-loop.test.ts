@@ -13,6 +13,7 @@
  *
  * Run: pnpm test --watch lib/__tests__/conversation-loop.test.ts
  */
+import { HAIKU } from '../models'
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
@@ -123,7 +124,7 @@ async function simulateAgentTurn({
   const convoText = thread.map(m => `[${m.role.toUpperCase()}]: ${m.text}`).join('\n\n')
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 400,
     system: 'You are a gym retention agent. Decide what to do next.',
     messages: [{ role: 'user', content: convoText }],

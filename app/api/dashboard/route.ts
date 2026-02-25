@@ -143,11 +143,10 @@ export async function GET(req: NextRequest) {
     recentRuns = data || []
   }
   
-  // Get pending actions — prefer agent_tasks (new), fall back to agent_actions (legacy)
+  // Get pending actions from agent_tasks
   let pendingActions: any[] = []
   if (gym) {
-    // Try agent_tasks first
-    const { data: tasks, error: tasksError } = await supabaseAdmin
+    const { data: tasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
       .eq('gym_id', gym.id)
@@ -155,11 +154,16 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(20)
 
-    if (!tasksError && tasks && tasks.length > 0) {
-      // Map agent_tasks rows to ActionCard shape
+    if (tasks && tasks.length > 0) {
       pendingActions = tasks.map((t: {
         id: string
+        status: string
         context?: Record<string, unknown>
+        member_name?: string
+        member_email?: string
+        member_id?: string
+        task_type?: string
+        goal?: string
         insight_member_name?: string
         insight_member_email?: string
         insight_member_id?: string
@@ -174,38 +178,27 @@ export async function GET(req: NextRequest) {
         insight_estimated_impact?: string
         created_at: string
       }) => {
-        const ctx = t.context ?? {}
+        const ctx = (t.context ?? {}) as Record<string, unknown>
         return {
           id: t.id,
           approved: null,
           dismissed: null,
           content: {
-            memberId: t.insight_member_id ?? (ctx as Record<string, unknown>).memberId ?? t.id,
-            memberName: t.insight_member_name ?? (ctx as Record<string, unknown>).memberName ?? 'Member',
-            memberEmail: t.insight_member_email ?? (ctx as Record<string, unknown>).memberEmail ?? '',
-            riskLevel: (t.insight_risk_level ?? (ctx as Record<string, unknown>).riskLevel ?? 'medium') as 'high' | 'medium' | 'low',
-            riskReason: t.insight_reason ?? (ctx as Record<string, unknown>).riskReason ?? '',
-            recommendedAction: t.insight_recommended_action ?? (ctx as Record<string, unknown>).recommendedAction ?? '',
-            draftedMessage: t.insight_draft_message ?? (ctx as Record<string, unknown>).draftedMessage ?? '',
-            messageSubject: t.insight_message_subject ?? (ctx as Record<string, unknown>).messageSubject ?? '',
-            confidence: t.insight_confidence ?? (ctx as Record<string, unknown>).confidence ?? 0.75,
-            insights: t.insight_detail ?? (ctx as Record<string, unknown>).insights ?? '',
-            playbookName: t.insight_playbook_name ?? (ctx as Record<string, unknown>).playbookName ?? undefined,
-            estimatedImpact: t.insight_estimated_impact ?? '',
+            memberId: t.insight_member_id ?? ctx.memberId ?? t.id,
+            memberName: t.insight_member_name ?? t.member_name ?? ctx.memberName ?? 'Member',
+            memberEmail: t.insight_member_email ?? t.member_email ?? ctx.memberEmail ?? '',
+            riskLevel: (t.insight_risk_level ?? ctx.riskLevel ?? 'medium') as 'high' | 'medium' | 'low',
+            riskReason: t.insight_reason ?? ctx.riskReason ?? '',
+            recommendedAction: t.insight_recommended_action ?? ctx.recommendedAction ?? '',
+            draftedMessage: t.insight_draft_message ?? ctx.draftMessage ?? '',
+            messageSubject: t.insight_message_subject ?? ctx.messageSubject ?? '',
+            confidence: t.insight_confidence ?? ctx.confidence ?? 0.75,
+            insights: t.insight_detail ?? ctx.insightDetail ?? '',
+            playbookName: t.insight_playbook_name ?? ctx.playbookName ?? undefined,
+            estimatedImpact: t.insight_estimated_impact ?? ctx.estimatedImpact ?? '',
           },
         }
       })
-    } else if (recentRuns.length > 0) {
-      // Fall back to legacy agent_actions
-      const runIds = recentRuns.map((r: { id: string }) => r.id)
-      const { data } = await supabaseAdmin
-        .from('agent_actions')
-        .select('*')
-        .in('agent_run_id', runIds)
-        .is('approved', null)
-        .is('dismissed', null)
-        .order('created_at', { ascending: false })
-      pendingActions = data || []
     }
   }
   

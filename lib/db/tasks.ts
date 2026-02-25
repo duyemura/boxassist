@@ -151,64 +151,42 @@ export async function getOpenTasksForGym(gymId: string): Promise<AgentTask[]> {
 }
 
 // ============================================================
-// getOrCreateTaskForAction
-// Used by reply-agent to find/create the agent_tasks shadow row
-// for a legacy agent_actions action during the migration period.
-// ============================================================
-export async function getOrCreateTaskForAction(action: {
-  id: string
-  content?: Record<string, unknown>
-}): Promise<string | null> {
-  try {
-    // 1. Look for existing task backed by this legacy action
-    const { data: existing } = await supabaseAdmin
-      .from('agent_tasks')
-      .select('id')
-      .eq('legacy_action_id', action.id)
-      .single()
-
-    if (existing) return existing.id as string
-
-    // 2. Create one
-    const content = action.content as any ?? {}
-    const { data: created, error } = await supabaseAdmin
-      .from('agent_tasks')
-      .insert({
-        gym_id: DEMO_GYM_ID,
-        assigned_agent: 'retention',
-        task_type: 'manual',
-        member_email: content.memberEmail ?? null,
-        member_name: content.memberName ?? null,
-        goal: content.recommendedAction ?? content.playbookGoal ?? 'Re-engage member',
-        context: { legacyAction: true },
-        legacy_action_id: action.id,
-        status: 'open',
-      })
-      .select('id')
-      .single()
-
-    if (error) {
-      console.error('getOrCreateTaskForAction: insert error', error.message)
-      return null
-    }
-
-    return created?.id ?? null
-  } catch (err) {
-    console.error('getOrCreateTaskForAction: unexpected error', err)
-    return null
-  }
-}
-
-// ============================================================
 // createInsightTask
 // Creates an agent_task from a GMAgent GymInsight.
 // Called by GMAgent.runAnalysis and GMAgent.handleEvent.
+//
+// When gym has autopilot_enabled, tasks skip approval (except escalations).
+// During shadow mode (first 7 days), tasks are logged but not auto-sent.
 // ============================================================
 export async function createInsightTask(params: {
   gymId: string
   insight: GymInsight
   causationEventId?: string
 }): Promise<AgentTask> {
+  // Check if gym has autopilot enabled
+  let requiresApproval = true
+  const { data: gym } = await supabaseAdmin
+    .from('gyms')
+    .select('autopilot_enabled, autopilot_enabled_at')
+    .eq('id', params.gymId)
+    .single()
+
+  if (gym?.autopilot_enabled) {
+    // Escalations always require approval
+    const isEscalation = params.insight.priority === 'critical' || params.insight.type === 'payment_failed'
+    if (!isEscalation) {
+      // Check shadow mode: first 7 days after enabling
+      const enabledAt = gym.autopilot_enabled_at ? new Date(gym.autopilot_enabled_at) : new Date()
+      const shadowEnd = new Date(enabledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+      const inShadowMode = shadowEnd > new Date()
+
+      if (!inShadowMode) {
+        requiresApproval = false
+      }
+      // In shadow mode: still requires_approval but context notes it would have auto-sent
+    }
+  }
+
   return createTask({
     gymId: params.gymId,
     assignedAgent: 'retention',
@@ -224,6 +202,6 @@ export async function createInsightTask(params: {
       recommendedAction: params.insight.recommendedAction,
       priority: params.insight.priority,
     },
-    requiresApproval: true,  // owner reviews all GM Agent insights
+    requiresApproval,
   })
 }
