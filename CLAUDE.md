@@ -1,6 +1,6 @@
 # GymAgents — Claude Instructions
 
-AI General Manager for boutique gyms. Increases retention + revenue through proactive agent execution. Built for PushPress gyms.
+AI-powered retention and revenue system for recurring-membership businesses. Built on PushPress today, architected for any business where clients pay monthly and disengage over time.
 
 ## Commands
 
@@ -16,40 +16,68 @@ npm run lint         # eslint
 
 ## Core Architectural Principle — Read This First
 
-**AI reasons. Code plumbs.**
+**AI reasons about the domain. Code handles infrastructure.**
 
-This system is designed to work for any retention-critical business — CrossFit gyms, yoga studios, BJJ schools, Pilates studios, and future verticals we haven't entered yet. That only works if we keep domain logic out of the code and let the AI reason from context.
+This system is designed to work for any retention-critical business — CrossFit gyms, yoga studios, BJJ schools, Pilates studios, coworking spaces, and verticals we haven't entered yet. That only works if we keep domain logic out of the code and let the AI reason from context.
 
-### The Three Columns
+### How Decisions Get Made
 
-| Hardcode in code | AI reasons about | Lives in context (memories, skills, schemas) |
+The AI makes every domain decision — who needs attention, what kind of outreach, how urgent, what to say, when to follow up. It does this by combining three context layers that code assembles but never interprets:
+
+1. **Skills** (`lib/task-skills/*.md`) — Natural language playbooks with YAML front-matter. Each describes *when* it applies and *how* to approach a situation. The AI selects relevant skills semantically (keyword matching on `applies_when` + `triggers`), not through a hardcoded type→file mapping. New situations get handled by new skill files, not new code.
+
+2. **Memories** (`gym_memories` table) — Freeform facts about a specific business and its clients. Owner preferences ("sign off as Coach Mike"), client facts ("Alex prefers morning classes"), learned patterns ("members here respond better to evening messages"). The AI reads these as context — no code interprets them.
+
+3. **Connectors** (PushPress today, any source tomorrow) — Provide raw data (clients, visits, subscriptions, payments). Connector-specific types (`PPCustomer`, `PPCheckin`) live ONLY in the connector layer (`lib/pushpress-platform.ts`). The agent layer works with abstract `MemberData` — it never imports connector types.
+
+**The analysis flow:**
+```
+Connector data (PushPress API)
+  → Abstract member summaries (MemberData[])
+    → AI prompt: member data + skill summaries + business memories
+      → AI returns: who needs attention, why, what type, what priority
+        → Tasks created with AI-assigned types and goals
+          → Skill files selected semantically for drafting/evaluation
+```
+
+No step in this chain uses hardcoded scoring formulas, task type enums, or domain-specific if/else logic. The formula-based `analyzeGym()` method exists only as a safety-net fallback — `analyzeGymAI()` is the primary path.
+
+### The Decision Boundary
+
+| Code handles (infrastructure) | AI reasons about (domain) | Context lives in (skills, memories, connectors) |
 |---|---|---|
-| Infrastructure: webhooks, cron, email delivery | Pattern detection: what's abnormal for this business | Business memories: what we've learned about this specific business |
-| Safety rails: send limits, escalation triggers, opt-out | Risk assessment: who needs attention and why | Skill files: how to approach different situations |
-| Attribution: did they come back? (needs a concrete definition) | Categorization: what kind of situation is this | Connector schemas: what data is available and what it means |
-| Security: `gym_id` scoping, auth, encryption | Message crafting: what to say for this audience | Cross-business patterns: anonymized learnings from outcomes |
-| Reliability: command bus, retry, audit log | Follow-up timing: when is the right moment to act | |
-| | Escalation judgment: what needs human attention | |
+| Webhook routing, cron scheduling, email delivery | Who needs attention and why | Skill files: how to approach each situation |
+| Safety rails: send limits, escalation triggers, opt-out | What kind of situation this is (task type as a label) | Business memories: owner preferences, client facts |
+| Attribution: did they come back within 14 days? | What to say and how to say it | Connector schemas: what data is available |
+| Security: `account_id` scoping, auth, encryption | When to follow up vs when to close | Cross-business patterns: what works at similar businesses |
+| Command bus: `SendEmail`, `CreateTask` (plumbing) | What needs human attention vs agent-handled | |
+| Retry logic, audit logging, idempotency | Whether a new event is significant enough to act on | |
 
 ### What This Means When Writing Code
 
-**Before adding any domain logic, ask:** Should the AI be reasoning about this instead?
+**Before adding any domain logic, ask:** Should the AI be reasoning about this, or does this genuinely belong in code?
 
-- Adding a threshold like `if (daysSinceCheckin > 14)`? → **Stop.** That's a hardcoded gym assumption. Let the AI assess what's abnormal for this specific business given its context.
-- Adding a new `task_type` to an enum? → **Stop.** Task types are hints the AI chooses, not categories that drive behavior. Tasks are goal-driven objects with freeform context.
-- Adding a new `_handleSomeEvent()` handler? → **Stop.** The AI should evaluate "something happened — does it matter?" not a switch statement we wrote.
-- Adding gym-specific language to a prompt? → **Stop.** Put it in a skill file or memory, not hardcoded in the agent class.
-- Creating a type called `PPCustomer` or `GymMember`? → **Caution.** Abstract entities (`BusinessEntity`, `EngagementEvent`) work across business types. PushPress-specific types belong in the connector layer only.
+- **Adding a threshold** like `if (daysSinceCheckin > 14)`? → **Stop.** The AI analyzes member data and reasons about what's abnormal for this specific business. Thresholds belong in the AI prompt as guidance ("consider visit frequency trends"), not as code.
+- **Adding a new task type** to an enum or mapping? → **Stop.** Task types are freeform labels the AI assigns. The `InsightType` union has `| (string & {})` — the AI can create any type. Skill files are selected semantically via `selectRelevantSkills()`, not by a hardcoded `TASK_TYPE_TO_FILE` map (which exists only as a legacy fallback).
+- **Adding a `case 'some.event':` handler**? → **Stop.** The AI should evaluate events in context ("something happened — does it matter?"). Switch statements on event types are PushPress-specific and won't work for future connectors.
+- **Putting business-specific language in an agent class**? → **Stop.** "gym", "check-in", "membership" belong in skill files and memories, not in `GMAgent.ts`. Agent code should say "client", "visit", "subscription" — abstract concepts.
+- **Creating a type like `PPCustomer` in the agent layer**? → **Stop.** PushPress types belong in `lib/pushpress-platform.ts` (connector layer). The agent layer uses `MemberData`, `AccountSnapshot`, `AccountInsight` — abstract types that work for any business.
+- **Hardcoding a message cadence** (day 0, day 3, day 10)? → **Stop.** Follow-up timing should be AI-driven based on context. Skill files describe approach patterns; the AI decides timing per situation.
+- **Filtering by `task_type === 'churn_risk'`**? → **Stop.** Use priority-based logic (`priority === 'critical' || 'high'`) or keyword matching (`type.includes('churn')`) — these work with AI-assigned types.
 
-### What's Fine to Hardcode
+### What's Correctly Hardcoded
 
 - Webhook registration and event routing infrastructure
-- Command bus: `SendEmail`, `SendSMS`, `CreateTask` — these are plumbing, not logic
-- Daily send limits, shadow mode, opt-out enforcement — safety never delegates to AI
-- Attribution logic — "did they check in within 14 days?" needs a concrete answer for ROI
-- Auth, encryption, `gym_id` scoping — security is never AI-driven
+- Command bus: `SendEmail`, `SendSMS`, `CreateTask` — plumbing actions, not decisions
+- Daily send limits, shadow mode duration, opt-out enforcement — safety never delegates to AI
+- Attribution: "did they visit within 14 days?" needs a concrete, consistent definition for ROI measurement
+- Auth, encryption, `account_id` scoping — security is never AI-driven
+- Model selection: `SONNET` for reasoning, `HAIKU` for drafting (centralized in `lib/models.ts`)
 
-**Read `docs/AI-NATIVE-ARCHITECTURE.md`** for the full design doc, examples of right vs. wrong, and the refactor roadmap for existing hardcoded logic.
+### Key Design Docs
+
+- **`docs/AI-NATIVE-ARCHITECTURE.md`** — Full design doc with examples, migration roadmap, new code checklist
+- **`docs/SELF_IMPROVING_SYSTEM.md`** — How the system learns from outcomes and gets smarter per business
 
 ---
 
@@ -58,17 +86,17 @@ This system is designed to work for any retention-critical business — CrossFit
 Read `docs/VISION.md` before making architectural decisions.
 
 Key points:
-- **North star:** members retained per gym per month — every decision maps to this
+- **North star:** clients retained per business per month — every decision maps to this
 - **The owner's job:** approve or escalate — agents handle everything else
 - **Distribution:** PushPress partnership (3,000 gyms) is the growth path, not direct acquisition
 - **The demo** is the top of funnel — visitor gets a real email in their inbox in 30s
-- **Pricing anchor:** replacing a $2,000-4,000/month marketing agency at $97-197/month
+- **Pricing anchor:** replacing a $2-4k/month agency at $97-197/month
 - **The moat:** closed-loop ROI attribution + cross-business learning — no current vendor can do this
 
 ## Tech Stack
 
 - **Framework:** Next.js 14 App Router
-- **Database:** Supabase (Postgres), `gym_id` scoped everywhere
+- **Database:** Supabase (Postgres), `account_id` scoped everywhere
 - **AI:** Anthropic Claude — `claude-sonnet-4-6` for reasoning, `claude-haiku-4-5-20251001` for drafting/humanizing
 - **Email:** Resend (outbound + inbound webhooks)
 - **Deployment:** Vercel — push to `main` → auto-deploy
@@ -82,20 +110,27 @@ app/api/              # API routes (agents, autopilot, webhooks, demo, skills...
 app/dashboard/        # Main UI pages
 components/           # React components
 lib/agents/           # BaseAgent, GMAgent, RetentionAgent
-lib/db/               # DB helpers (commands, events, chat, kpi, tasks)
+lib/task-skills/      # Skill files — natural language playbooks with YAML front-matter
+lib/skill-loader.ts   # Loads skills, semantic matching, prompt building
+lib/db/               # DB helpers (commands, events, chat, kpi, tasks, memories)
+lib/db/memories.ts    # Business memory CRUD + prompt injection
+lib/pushpress-platform.ts  # PushPress connector (PP types stay here, not in agent layer)
 lib/__tests__/        # Vitest unit + API tests
 e2e/                  # Playwright E2E browser tests
 lib/workflow-runner.ts
 lib/reply-agent.ts
-lib/pushpress-sdk.ts
 lib/supabase.ts
+docs/AI-NATIVE-ARCHITECTURE.md  # AI-native design doc
+docs/SELF_IMPROVING_SYSTEM.md   # Cross-business learning design
 BRAND.md              # Design system — READ before writing any UI code
 WORKFLOWS.md          # Workflow engine design doc
 ```
 
 ## Architecture Patterns
 
-- **Multi-tenancy:** All DB queries must be scoped with `gym_id`
+- **Multi-tenancy:** All DB queries must be scoped with `account_id` (column is still `gym_id` in some tables during migration — same UUID, different name)
+- **AI-driven analysis:** `GMAgent.analyzeGymAI()` sends member data + skill summaries to Claude. Formula-based `analyzeGym()` is a fallback/validation only.
+- **Semantic skill selection:** `selectRelevantSkills(description)` matches goals against skill file YAML headers — no hardcoded type→file mapping needed
 - **Command bus:** Structured commands (`SendEmail`, `SendSMS`, `CreateTask`, `CloseTask`, `EscalateTask`, `EnrollInWorkflow`) — logged, retryable, auditable. See `lib/db/commands.ts`
 - **Event bus:** Postgres outbox pattern (no Kafka/Redis)
 - **Workflow engine:** TypeScript state machine configs in DB; see `WORKFLOWS.md`
