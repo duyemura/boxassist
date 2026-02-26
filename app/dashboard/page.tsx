@@ -312,10 +312,11 @@ function DashboardContent() {
   }
 
   const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
-  const accountName = isDemo ? 'PushPress East' : (data?.gym?.account_name ?? data?.gym?.name ?? 'Your Gym')
-  const memberCount = data?.gym?.member_count ?? data?.gym?.memberCount ?? 0
+  const acct = data?.account ?? data?.gym
+  const accountName = isDemo ? 'PushPress East' : (acct?.account_name ?? acct?.gym_name ?? acct?.name ?? 'Your Gym')
+  const memberCount = acct?.member_count ?? acct?.memberCount ?? 0
   // Map autopilot_level to execution mode for UI components
-  const autopilotLevel = data?.gym?.autopilot_level ?? 'draft_only'
+  const autopilotLevel = acct?.autopilot_level ?? 'draft_only'
   const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
 
   const atRiskAutopilot = autopilots.find((a: any) => a.skill_type === 'at_risk_detector')
@@ -340,7 +341,7 @@ function DashboardContent() {
   const gmChatNode = (
     <GMChat
       ref={gmChatRef}
-      accountId={isDemo ? 'demo-gym' : (data?.gym?.id ?? '')}
+      accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
       isDemo={isDemo}
       onRunAnalysis={runScan}
       onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
