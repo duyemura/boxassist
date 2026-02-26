@@ -24,16 +24,6 @@ interface AgentEditorProps {
   onDeleted: () => void
 }
 
-const SKILL_TYPES = [
-  { value: 'at_risk_detector', label: 'At-Risk Monitor' },
-  { value: 'win_back', label: 'Lapsed Member Win-Back' },
-  { value: 'renewal_guard', label: 'Renewal At-Risk' },
-  { value: 'onboarding', label: 'New Member Onboarding' },
-  { value: 'lead_catcher', label: 'New Lead Response' },
-  { value: 'referral', label: 'Milestone Referral' },
-  { value: 'payment_recovery', label: 'Failed Payment Recovery' },
-]
-
 const SCHEDULE_OPTIONS = [
   { value: 'daily', label: 'Daily (1am)' },
   { value: 'hourly', label: 'Hourly' },
@@ -46,7 +36,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
 
   const [name, setName] = useState(agent?.name ?? '')
   const [description, setDescription] = useState(agent?.description ?? '')
-  const [skillType, setSkillType] = useState(agent?.skill_type ?? 'at_risk_detector')
   const [schedule, setSchedule] = useState(agent?.cron_schedule ?? 'daily')
   const [active, setActive] = useState(agent?.active ?? true)
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt ?? '')
@@ -60,7 +49,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     if (!agent) return
     setName(agent.name ?? '')
     setDescription(agent.description ?? '')
-    setSkillType(agent.skill_type ?? 'at_risk_detector')
     setSchedule(agent.cron_schedule ?? 'daily')
     setActive(agent.active ?? true)
     setSystemPrompt(agent.system_prompt ?? '')
@@ -84,7 +72,9 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     try {
       const payload = {
         name, description,
-        skill_type: skillType,
+        // skill_type for new agents: derived from name as a freeform slug
+        // the AI matches it semantically — no hardcoded enum needed
+        ...(isNew ? { skill_type: name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') } : {}),
         cron_schedule: schedule,
         active,
         system_prompt: systemPrompt,
@@ -198,32 +188,18 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
           />
         </div>
 
-        {/* Skill type + Schedule row */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Playbook</label>
-            <select
-              value={skillType}
-              onChange={e => setSkillType(e.target.value)}
-              className={fieldCls + ' bg-white'}
-            >
-              {SKILL_TYPES.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Schedule</label>
-            <select
-              value={schedule}
-              onChange={e => setSchedule(e.target.value)}
-              className={fieldCls + ' bg-white'}
-            >
-              {SCHEDULE_OPTIONS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </div>
+        {/* Schedule */}
+        <div>
+          <label className={labelCls}>Schedule</label>
+          <select
+            value={schedule}
+            onChange={e => setSchedule(e.target.value)}
+            className={fieldCls + ' bg-white'}
+          >
+            {SCHEDULE_OPTIONS.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Active toggle */}
@@ -262,15 +238,15 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
         {/* Custom instructions */}
         <div>
           <label className={labelCls}>
-            Custom instructions
-            <span className="text-gray-300 normal-case font-normal ml-1">(optional — overrides playbook defaults)</span>
+            Instructions
+            <span className="text-gray-300 normal-case font-normal ml-1">(tells the AI what to do and how to communicate)</span>
           </label>
           <textarea
             value={systemPrompt}
             onChange={e => setSystemPrompt(e.target.value)}
             rows={5}
             className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-            placeholder="Leave blank to use the playbook's default instructions…"
+            placeholder="Describe what this agent should do, who to contact, and how to communicate. The AI figures out the rest."
           />
         </div>
 
