@@ -9,25 +9,23 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return new Response('Unauthorized', { status: 401 })
 
-  const { goal, target, tone, successMetric } = await req.json()
+  const { goal, successMetric } = await req.json()
   if (!goal) return new Response('goal is required', { status: 400 })
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
-  const system = `You write system prompts for AI agents that help gym and fitness businesses retain members and grow revenue.
+  const system = `You write system prompts for AI agents that help businesses automate tasks, analyze data, and communicate with clients.
 
-A system prompt tells the AI agent exactly what to do: what data to look at, who to focus on, what signals matter, how to communicate, and what a good outcome looks like.
+A system prompt tells the AI agent exactly what to do: what to look for, who or what to focus on, what signals matter, how to act, and what a good outcome looks like.
 
-Write in second person ("You are..."). 4-6 focused sentences. No headers, no bullet points, no lists. Plain prose the agent can follow directly. Be specific to what the owner described — don't be generic.`
+Write in second person ("You are..."). 4-6 focused sentences. No headers, no bullet points, no lists. Plain prose the agent can follow directly. Be specific to what the owner described — don't be generic or add things they didn't ask for.`
 
-  const prompt = `Write a system prompt for an AI agent with these requirements:
+  const prompt = `Write a system prompt for an AI agent.
 
-What it should do: ${goal}
-Who it watches: ${target}
-Communication tone: ${tone}
-${successMetric ? `A good outcome looks like: ${successMetric}` : ''}
+What the owner wants it to do: ${goal}
+${successMetric ? `What success looks like: ${successMetric}` : ''}
 
-The agent works with a gym or fitness business. It will analyze member data from PushPress and draft personalized outreach messages for the owner to review and send.`
+The agent has access to business data and can draft messages, analyze patterns, flag issues, and surface insights for the owner to act on.`
 
   const stream = client.messages.stream({
     model: HAIKU,

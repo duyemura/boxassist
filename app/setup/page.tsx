@@ -1,25 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import AgentPromptBuilder from '@/components/AgentPromptBuilder'
 
-// ── Question options ──────────────────────────────────────────────────────────
-
-const TARGET_OPTIONS = [
-  { id: 'drifting', label: 'Drifting members', description: "Attendance is dropping" },
-  { id: 'cancelled', label: 'Cancelled members', description: "Want them back" },
-  { id: 'failed_payment', label: 'Failed payments', description: "Billing needs fixing" },
-  { id: 'new_members', label: 'New members', description: "Just joined" },
-  { id: 'new_leads', label: 'New leads', description: "Haven't joined yet" },
-  { id: 'everyone', label: 'All active members', description: "Broad outreach" },
-]
-
-const TONE_OPTIONS = [
-  { id: 'warm', label: 'Warm & Personal', description: "Coach who knows them" },
-  { id: 'motivational', label: 'Motivational', description: "Push them to show up" },
-  { id: 'direct', label: 'Direct & Brief', description: "Gets to the point" },
-  { id: 'professional', label: 'Professional', description: "Business-appropriate" },
-]
+// ── Schedule options ──────────────────────────────────────────────────────────
 
 const TRIGGER_OPTIONS = [
   { id: 'daily', label: 'Daily', description: 'Every morning', mode: 'cron', schedule: 'daily' },
@@ -39,7 +24,7 @@ const PUSHPRESS_EVENTS = [
 // ── Progress ──────────────────────────────────────────────────────────────────
 
 function Progress({ step }: { step: number }) {
-  const labels = ['Describe', 'Review', 'Schedule']
+  const labels = ['Build', 'Schedule']
   return (
     <div className="flex items-center gap-0 mb-10">
       {labels.map((label, i) => {
@@ -66,43 +51,11 @@ function Progress({ step }: { step: number }) {
                 {label}
               </span>
             </div>
-            {s < 3 && <div className="w-8 h-px mx-2" style={{ backgroundColor: step > s ? '#0063FF' : '#E5E7EB' }} />}
+            {s < 2 && <div className="w-8 h-px mx-2" style={{ backgroundColor: step > s ? '#0063FF' : '#E5E7EB' }} />}
           </div>
         )
       })}
     </div>
-  )
-}
-
-// ── Tile button ───────────────────────────────────────────────────────────────
-
-function Tile({
-  label, description, active, onClick,
-}: { label: string; description: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-left p-3 border transition-colors"
-      style={{
-        backgroundColor: active ? '#F0F6FF' : 'white',
-        borderColor: active ? '#0063FF' : '#E5E7EB',
-        borderLeft: active ? '3px solid #0063FF' : '3px solid transparent',
-      }}
-    >
-      <p className="text-sm font-semibold" style={{ color: active ? '#0063FF' : '#111827' }}>{label}</p>
-      <p className="text-xs mt-0.5" style={{ color: '#9CA3AF' }}>{description}</p>
-    </button>
-  )
-}
-
-// ── Blinking cursor ───────────────────────────────────────────────────────────
-
-function Cursor() {
-  return (
-    <span
-      className="inline-block w-0.5 h-4 ml-0.5 animate-pulse align-middle"
-      style={{ backgroundColor: '#0063FF', verticalAlign: 'middle' }}
-    />
   )
 }
 
@@ -111,21 +64,12 @@ function Cursor() {
 export default function SetupPage() {
   const router = useRouter()
 
-  // Step 1 — questions
-  const [goal, setGoal] = useState('')
-  const [target, setTarget] = useState('')
-  const [tone, setTone] = useState('')
-  const [successMetric, setSuccessMetric] = useState('')
-
-  // Step 2 — generation
+  // Step 1 — build
   const [agentName, setAgentName] = useState('')
-  const [generatedPrompt, setGeneratedPrompt] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [streamDone, setStreamDone] = useState(false)
-  const [genError, setGenError] = useState('')
-  const generationRef = useRef(false)
+  const [description, setDescription] = useState('')
+  const [systemPrompt, setSystemPrompt] = useState('')
 
-  // Step 3 — schedule
+  // Step 2 — schedule
   const [selectedTrigger, setSelectedTrigger] = useState('daily')
   const [selectedEvent, setSelectedEvent] = useState('member.cancelled')
   const [runHour, setRunHour] = useState(9)
@@ -135,110 +79,31 @@ export default function SetupPage() {
 
   const [step, setStep] = useState(1)
 
-  const labelCls = 'text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-2 block'
   const fieldCls = 'w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors'
-
-  // ── Generation ──────────────────────────────────────────────────────────────
-
-  const runGeneration = async () => {
-    if (generationRef.current) return
-    generationRef.current = true
-    setGeneratedPrompt('')
-    setStreamDone(false)
-    setGenError('')
-
-    // Derive agent name from goal (quick slug) — replaced by API call below
-    const quickName = goal.trim().split(' ').slice(0, 5).join(' ')
-    setAgentName(quickName)
-
-    // Fire name generation in parallel
-    fetch('/api/setup/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ goal, skillType: target }),
-    })
-      .then(r => r.json())
-      .then(data => { if (data.config?.name) setAgentName(data.config.name) })
-      .catch(() => {})
-
-    // Stream the system prompt
-    try {
-      const res = await fetch('/api/setup/generate-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal, target, tone, successMetric }),
-      })
-
-      if (!res.ok || !res.body) {
-        setGenError('Failed to generate — try again')
-        setStreaming(false)
-        generationRef.current = false
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let accumulated = ''
-
-      while (true) {
-        const { done: readerDone, value } = await reader.read()
-        if (readerDone) break
-        accumulated += decoder.decode(value, { stream: true })
-        setGeneratedPrompt(accumulated)
-      }
-
-      setStreamDone(true)
-    } catch (err: any) {
-      setGenError(err.message ?? 'Generation failed')
-    } finally {
-      setStreaming(false)
-      generationRef.current = false
-    }
-  }
-
-  const handleGenerate = () => {
-    if (!goal.trim() || !target || !tone) return
-    setStep(2)
-    setStreaming(true)
-  }
-
-  // Trigger generation when step 2 becomes active
-  useEffect(() => {
-    if (step === 2 && streaming) {
-      runGeneration()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, streaming])
-
-  const handleRegenerate = () => {
-    generationRef.current = false
-    setStreaming(true)
-    runGeneration()
-  }
+  const labelCls = 'text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block'
 
   // ── Create agent ────────────────────────────────────────────────────────────
 
   const handleCreate = async () => {
-    if (!generatedPrompt.trim() || !agentName.trim()) return
+    if (!systemPrompt.trim() || !agentName.trim()) return
     setCreating(true)
     setCreateError('')
 
     try {
       const trigger = TRIGGER_OPTIONS.find(t => t.id === selectedTrigger)!
-      const skillType = goal.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40)
+      const skillType = agentName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40) || 'custom_agent'
 
       const config = {
         name: agentName,
-        description: goal.trim(),
-        skill_type: skillType || 'custom_agent',
-        system_prompt: generatedPrompt.trim(),
+        description: description.trim(),
+        skill_type: skillType,
+        system_prompt: systemPrompt.trim(),
         trigger_mode: trigger.mode === 'manual' ? 'cron' : trigger.mode,
         trigger_event: trigger.mode === 'event' ? selectedEvent : null,
         cron_schedule: trigger.mode === 'cron' ? trigger.schedule : null,
         run_hour: runHour,
         action_type: 'draft_message',
         data_sources: [],
-        estimated_value: successMetric || '',
       }
 
       const res = await fetch('/api/agent-builder/deploy', {
@@ -303,175 +168,41 @@ export default function SetupPage() {
         <div className="w-full max-w-xl">
           <Progress step={step} />
 
-          {/* ── Step 1: Questions ───────────────────────────────────────────── */}
+          {/* ── Step 1: Build ───────────────────────────────────────────── */}
           {step === 1 && (
-            <div className="space-y-7">
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 mb-1">Build your first agent</h1>
-                <p className="text-sm text-gray-400">Answer a few questions — the AI writes the prompt for you.</p>
-              </div>
-
-              {/* Goal */}
-              <div>
-                <label className={labelCls}>What should this agent do?</label>
-                <textarea
-                  value={goal}
-                  onChange={e => setGoal(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. Find members who haven't been in for 2+ weeks and draft a personal check-in message for each one."
-                  className={fieldCls + ' resize-none'}
-                />
-              </div>
-
-              {/* Target */}
-              <div>
-                <label className={labelCls}>Who should it watch?</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {TARGET_OPTIONS.map(opt => (
-                    <Tile
-                      key={opt.id}
-                      label={opt.label}
-                      description={opt.description}
-                      active={target === opt.id}
-                      onClick={() => setTarget(opt.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Tone */}
-              <div>
-                <label className={labelCls}>How should it communicate?</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {TONE_OPTIONS.map(opt => (
-                    <Tile
-                      key={opt.id}
-                      label={opt.label}
-                      description={opt.description}
-                      active={tone === opt.id}
-                      onClick={() => setTone(opt.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Success metric */}
-              <div>
-                <label className={labelCls}>
-                  What does success look like?
-                  <span className="text-gray-300 normal-case font-normal tracking-normal ml-1">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={successMetric}
-                  onChange={e => setSuccessMetric(e.target.value)}
-                  placeholder="e.g. They come back to the gym. Payment gets fixed. Lead books a trial."
-                  className={fieldCls}
-                />
-              </div>
-
-              <button
-                onClick={handleGenerate}
-                disabled={!goal.trim() || !target || !tone}
-                className="w-full py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40"
-                style={{ backgroundColor: '#0063FF' }}
-                onMouseEnter={e => { if (goal.trim() && target && tone) (e.currentTarget as HTMLButtonElement).style.opacity = '0.8' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
-              >
-                Write my agent prompt →
-              </button>
-            </div>
-          )}
-
-          {/* ── Step 2: AI writes the prompt ────────────────────────────────── */}
-          {step === 2 && (
             <div>
               <div className="mb-6">
-                <h1 className="text-xl font-bold text-gray-900 mb-1">
-                  {streamDone ? 'Review your agent' : 'Writing your agent…'}
-                </h1>
-                <p className="text-sm text-gray-400">
-                  {streamDone
-                    ? 'Edit the prompt if you want, then set a schedule.'
-                    : 'The AI is writing your agent prompt based on your answers.'}
-                </p>
+                <h1 className="text-xl font-bold text-gray-900 mb-1">Build your first agent</h1>
+                <p className="text-sm text-gray-400">Name it, describe what it does, and let the AI write the prompt.</p>
               </div>
 
-              {/* Agent name */}
-              <div className="mb-5">
-                <label className={labelCls}>Agent name</label>
-                <input
-                  type="text"
-                  value={agentName}
-                  onChange={e => setAgentName(e.target.value)}
-                  className={fieldCls}
-                  placeholder="Agent name"
-                />
-              </div>
+              <AgentPromptBuilder
+                name={agentName}
+                description={description}
+                systemPrompt={systemPrompt}
+                onNameChange={setAgentName}
+                onDescriptionChange={setDescription}
+                onSystemPromptChange={setSystemPrompt}
+                descriptionPlaceholder="e.g. Find members who haven't checked in for 2+ weeks and draft a personal check-in message."
+              />
 
-              {/* Streaming prompt display */}
-              <div className="mb-5">
-                <div className="flex items-center justify-between mb-2">
-                  <label className={labelCls} style={{ marginBottom: 0 }}>Agent instructions</label>
-                  {streamDone && (
-                    <button
-                      onClick={handleRegenerate}
-                      className="text-[10px] font-semibold tracking-widest uppercase transition-colors"
-                      style={{ color: '#9CA3AF' }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#0063FF')}
-                      onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
-                    >
-                      Regenerate
-                    </button>
-                  )}
-                </div>
-
-                {!streamDone ? (
-                  /* Streaming view */
-                  <div
-                    className="w-full border border-gray-200 bg-white px-4 py-3 text-sm leading-relaxed font-mono min-h-[140px]"
-                    style={{ color: '#374151' }}
-                  >
-                    {generatedPrompt}
-                    <Cursor />
-                  </div>
-                ) : (
-                  /* Editable after completion */
-                  <textarea
-                    value={generatedPrompt}
-                    onChange={e => setGeneratedPrompt(e.target.value)}
-                    rows={8}
-                    className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-                  />
-                )}
-              </div>
-
-              {genError && <p className="text-xs text-red-500 mb-3">{genError}</p>}
-
-              <div className="flex gap-2">
+              <div className="mt-6">
                 <button
-                  onClick={() => { setStep(1); generationRef.current = false }}
-                  className="px-4 py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-                  style={{ color: '#6B7280' }}
-                >
-                  ← Back
-                </button>
-                <button
-                  onClick={() => setStep(3)}
-                  disabled={!streamDone || !generatedPrompt.trim()}
-                  className="flex-1 py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40"
+                  onClick={() => setStep(2)}
+                  disabled={!agentName.trim() || !systemPrompt.trim()}
+                  className="w-full py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40"
                   style={{ backgroundColor: '#0063FF' }}
-                  onMouseEnter={e => { if (streamDone) (e.currentTarget as HTMLButtonElement).style.opacity = '0.8' }}
+                  onMouseEnter={e => { if (agentName.trim() && systemPrompt.trim()) (e.currentTarget as HTMLButtonElement).style.opacity = '0.8' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
                 >
-                  Next →
+                  Next: Set a schedule →
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Step 3: Schedule ────────────────────────────────────────────── */}
-          {step === 3 && (
+          {/* ── Step 2: Schedule ────────────────────────────────────────── */}
+          {step === 2 && (
             <div>
               <h1 className="text-xl font-bold text-gray-900 mb-1">When should it run?</h1>
               <p className="text-sm text-gray-400 mb-6">You can change this any time from your dashboard.</p>
@@ -533,7 +264,7 @@ export default function SetupPage() {
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(1)}
                   className="px-4 py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
                   style={{ color: '#6B7280' }}
                 >

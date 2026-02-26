@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import AgentPromptBuilder from './AgentPromptBuilder'
 
 interface Agent {
   id: string
@@ -41,16 +42,6 @@ function hourLabel(h: number): string {
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: i, label: hourLabel(i) }))
 
-// Blinking cursor shown during streaming
-function Cursor() {
-  return (
-    <span
-      className="inline-block w-0.5 h-3.5 ml-0.5 animate-pulse align-middle"
-      style={{ backgroundColor: '#0063FF', verticalAlign: 'middle' }}
-    />
-  )
-}
-
 export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted }: AgentEditorProps) {
   const isNew = !agent
 
@@ -65,10 +56,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
   const [deleting, setDeleting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // Prompt generation
-  const [generating, setGenerating] = useState(false)
-  const generatingRef = useRef(false)
 
   useEffect(() => {
     if (!agent) return
@@ -141,39 +128,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     }
   }
 
-  const handleGeneratePrompt = async () => {
-    if (generatingRef.current || !name.trim()) return
-    generatingRef.current = true
-    setGenerating(true)
-    setSystemPrompt('')
-    setError(null)
-
-    try {
-      const res = await fetch('/api/agents/generate-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description }),
-      })
-      if (!res.ok || !res.body) throw new Error('Generation failed')
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let accumulated = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        accumulated += decoder.decode(value, { stream: true })
-        setSystemPrompt(accumulated)
-      }
-    } catch (err: any) {
-      setError(err.message ?? 'Generation failed')
-    } finally {
-      setGenerating(false)
-      generatingRef.current = false
-    }
-  }
-
   const fieldCls = "w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
   const labelCls = "text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block"
   const showTimePicker = schedule === 'daily' || schedule === 'weekly'
@@ -223,29 +177,16 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
 
       <div className="flex-1 px-6 py-6 space-y-6 max-w-2xl">
 
-        {/* Name */}
-        <div>
-          <label className={labelCls}>Agent name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className={fieldCls}
-            placeholder="e.g. At-Risk Monitor"
-          />
-        </div>
-
-        {/* Description */}
-        <div>
-          <label className={labelCls}>Description</label>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            rows={2}
-            className={fieldCls + ' resize-none'}
-            placeholder="What does this agent do?"
-          />
-        </div>
+        {/* Name + description + AI prompt (shared builder) */}
+        <AgentPromptBuilder
+          name={name}
+          description={description}
+          systemPrompt={systemPrompt}
+          onNameChange={setName}
+          onDescriptionChange={setDescription}
+          onSystemPromptChange={setSystemPrompt}
+          disabled={isDemo}
+        />
 
         {/* Schedule + time picker */}
         <div className="flex gap-3">
@@ -308,45 +249,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
               }}
             />
           </button>
-        </div>
-
-        {/* AI Prompt */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className={labelCls} style={{ marginBottom: 0 }}>
-              AI Prompt
-              <span className="text-gray-300 normal-case font-normal tracking-normal ml-1">(system prompt sent to Claude on each run)</span>
-            </label>
-            <button
-              onClick={handleGeneratePrompt}
-              disabled={generating || !name.trim() || isDemo}
-              className="text-[10px] font-semibold tracking-widest uppercase transition-colors disabled:opacity-40"
-              style={{ color: generating ? '#0063FF' : '#9CA3AF' }}
-              onMouseEnter={e => { if (!generating && name.trim()) (e.currentTarget.style.color = '#0063FF') }}
-              onMouseLeave={e => { if (!generating) (e.currentTarget.style.color = '#9CA3AF') }}
-            >
-              {generating ? 'Writing…' : 'Generate with AI'}
-            </button>
-          </div>
-
-          {/* Streaming view while generating */}
-          {generating ? (
-            <div
-              className="w-full border border-gray-200 bg-white px-3 py-2 text-xs font-mono leading-relaxed min-h-[120px]"
-              style={{ color: '#374151' }}
-            >
-              {systemPrompt}
-              <Cursor />
-            </div>
-          ) : (
-            <textarea
-              value={systemPrompt}
-              onChange={e => setSystemPrompt(e.target.value)}
-              rows={7}
-              className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-              placeholder={`Enter a prompt or click "Generate with AI" to write one from your agent name and description.`}
-            />
-          )}
         </div>
 
         {/* Stats — edit mode only */}
