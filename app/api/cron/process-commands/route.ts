@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 /**
  * Vercel Cron endpoint — processes pending agent commands + autopilot tasks.
  *

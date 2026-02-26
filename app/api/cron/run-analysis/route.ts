@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 /**
  * POST /api/cron/run-analysis
  *
@@ -23,8 +25,10 @@ import { decrypt } from '@/lib/encrypt'
 import { GMAgent } from '@/lib/agents/GMAgent'
 import type { GymSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
-import { saveKPISnapshot } from '@/lib/db/kpi'
+import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
+import { createArtifact } from '@/lib/artifacts/db'
+import type { ResearchSummaryData } from '@/lib/artifacts/types'
 import * as dbTasks from '@/lib/db/tasks'
 import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
@@ -295,6 +299,18 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         `GM ran analysis. Found ${result.insightsFound} insight${result.insightsFound !== 1 ? 's' : ''}${result.insightsFound > 0 ? ', added to your To-Do.' : '.'}`,
       )
 
+      // Generate research summary artifact (fire-and-forget)
+      if (result.insights.length > 0) {
+        generateAnalysisArtifact(
+          gym.id,
+          gym.gym_name ?? 'Your Gym',
+          result,
+          snapshot,
+        ).catch(err => {
+          console.warn(`[run-analysis] Artifact generation failed for gym ${gym.id}:`, (err as Error).message)
+        })
+      }
+
       gymsAnalyzed++
       totalInsights += result.insightsFound
       totalTasksCreated += result.tasksCreated
@@ -318,6 +334,80 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     totalInsights,
     totalTasksCreated,
   })
+}
+
+// ── Artifact generation ──────────────────────────────────────────────────────
+
+async function generateAnalysisArtifact(
+  gymId: string,
+  gymName: string,
+  result: { insights: any[]; insightsFound: number; tasksCreated: number },
+  snapshot: GymSnapshot,
+) {
+  const now = new Date()
+  const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+
+  // Get monthly ROI for the artifact
+  let roi = { membersRetained: 0, revenueRetained: 0, messagesSent: 0, conversationsActive: 0, escalations: 0 }
+  try {
+    roi = await getMonthlyRetentionROI(gymId)
+  } catch {
+    // Non-fatal
+  }
+
+  const priorityToRisk = (p: string) =>
+    p === 'critical' ? 'high' : p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
+
+  const insightToStatus = (type: string) => {
+    if (type === 'win_back') return 'churned' as const
+    if (type === 'lead_followup' || type === 'lead_going_cold') return 'new' as const
+    return 'at_risk' as const
+  }
+
+  const artifactData: ResearchSummaryData = {
+    gymName,
+    generatedAt: now.toISOString(),
+    period: monthLabel,
+    generatedBy: 'GM Agent',
+    stats: {
+      membersAtRisk: result.insights.filter(i => i.type === 'churn_risk' || i.type === 'renewal_at_risk').length,
+      membersRetained: roi.membersRetained,
+      revenueRetained: roi.revenueRetained,
+      messagesSent: roi.messagesSent,
+      conversationsActive: roi.conversationsActive,
+      escalations: roi.escalations,
+    },
+    members: result.insights.slice(0, 15).map(insight => ({
+      name: insight.memberName ?? 'Unknown',
+      email: insight.memberEmail,
+      status: insightToStatus(insight.type),
+      riskLevel: priorityToRisk(insight.priority) as 'high' | 'medium' | 'low',
+      detail: insight.detail ?? insight.title,
+      membershipValue: undefined,
+    })),
+    insights: [
+      ...result.insights.length > 0
+        ? [`${result.insightsFound} members flagged across ${new Set(result.insights.map((i: any) => i.type)).size} categories`]
+        : [],
+      ...(result.insights.filter((i: any) => i.priority === 'critical').length > 0
+        ? [`${result.insights.filter((i: any) => i.priority === 'critical').length} critical priority — review these first`]
+        : []),
+      ...(roi.membersRetained > 0
+        ? [`${roi.membersRetained} members retained this month, saving $${roi.revenueRetained.toLocaleString()}`]
+        : []),
+    ],
+  }
+
+  await createArtifact({
+    gymId,
+    artifactType: 'research_summary',
+    title: `${gymName} — Analysis Summary`,
+    data: artifactData as unknown as Record<string, unknown>,
+    createdBy: 'gm',
+    shareable: true,
+  })
+
+  console.log(`[run-analysis] Artifact generated for gym ${gymId}`)
 }
 
 // Vercel Cron Jobs send GET requests — also keep POST for manual triggers
