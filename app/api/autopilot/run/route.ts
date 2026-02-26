@@ -139,15 +139,15 @@ export async function POST(req: NextRequest) {
 
         emit({ type: 'status', text: 'Fetching member check-in data from PushPress…' })
 
-        const apiKey = decrypt(gym.pushpress_api_key)
-        const client = createPushPressClient(apiKey, gym.pushpress_company_id)
+        const apiKey = decrypt(account.pushpress_api_key as string)
+        const client = createPushPressClient(apiKey, account.pushpress_company_id as string)
 
         const { data: run } = await supabaseAdmin
           .from('agent_runs')
-          .insert({ account_id: account.id, agent_type: 'at_risk_detector', status: 'running', input_summary: `Scanning ${gym.member_count} members for churn risk` })
+          .insert({ account_id: account.id, agent_type: 'at_risk_detector', status: 'running', input_summary: `Scanning ${account.member_count ?? 0} members for churn risk` })
           .select().single()
 
-        let atRiskMembers = await getAtRiskMembers(client, gym.pushpress_company_id)
+        let atRiskMembers = await getAtRiskMembers(client, account.pushpress_company_id as string)
 
         if (atRiskMembers.length === 0) {
           const now = new Date()
@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
 
         emit({ type: 'status', text: `Found ${membersForAnalysis.length} members to analyze — running churn risk scoring…` })
 
-        const agentOutput = await runAtRiskDetector(gym.account_name, membersForAnalysis, tier)
+        const agentOutput = await runAtRiskDetector((account.gym_name ?? account.account_name ?? 'Your Business') as string, membersForAnalysis, tier)
 
         emit({ type: 'status', text: `Analysis complete — ${agentOutput.actions.length} members flagged. Saving tasks…` })
 
@@ -204,8 +204,8 @@ export async function POST(req: NextRequest) {
         await supabaseAdmin.from('agent_runs').update({
           status: 'completed',
           output: agentOutput,
-          input_summary: `Found ${agentOutput.totalAtRisk} at-risk members out of ${gym.member_count} total`,
-          members_scanned: gym.member_count,
+          input_summary: `Found ${agentOutput.totalAtRisk} at-risk members out of ${account.member_count ?? 0} total`,
+          members_scanned: (account.member_count ?? 0) as number,
           actions_taken: agentOutput.actions.length,
           messages_sent: messagesSent,
           input_tokens: usage.input_tokens,
