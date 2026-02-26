@@ -12,6 +12,7 @@ interface GymMemory {
   category: MemoryCategory
   content: string
   importance: number
+  scope: string
   source: string
   member_id: string | null
   created_at: string
@@ -29,6 +30,35 @@ const CATEGORY_COLORS: Record<MemoryCategory, { color: string; bg: string }> = {
   gym_context: { color: '#16A34A', bg: 'rgba(22,163,74,0.08)' },
   member_fact: { color: '#7C3AED', bg: 'rgba(124,58,237,0.08)' },
   learned_pattern: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+}
+
+function ImportanceDots({ level, size = 'sm' }: { level: number; size?: 'sm' | 'md' }) {
+  const dotSize = size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2'
+  return (
+    <span className="inline-flex gap-0.5 items-center">
+      {[1, 2, 3, 4, 5].map(i => (
+        <span
+          key={i}
+          className={`${dotSize} rounded-full`}
+          style={{ backgroundColor: i <= level ? '#111827' : '#D1D5DB' }}
+        />
+      ))}
+    </span>
+  )
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diff = now - then
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
 }
 
 // Separate component so useSearchParams() is inside a Suspense boundary
@@ -59,9 +89,15 @@ export default function SettingsPage() {
   // Memory state
   const [memories, setMemories] = useState<GymMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(true)
-  const [newMemoryContent, setNewMemoryContent] = useState('')
-  const [newMemoryCategory, setNewMemoryCategory] = useState<MemoryCategory>('preference')
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newMemory, setNewMemory] = useState({
+    content: '',
+    category: 'preference' as MemoryCategory,
+    importance: 3,
+    pinToContext: false,
+  })
   const [addingMemory, setAddingMemory] = useState(false)
+  const [memorySearch, setMemorySearch] = useState('')
 
   const fetchMemories = useCallback(async () => {
     try {
@@ -78,19 +114,21 @@ export default function SettingsPage() {
   }, [])
 
   const handleAddMemory = async () => {
-    if (!newMemoryContent.trim()) return
+    if (!newMemory.content.trim()) return
     setAddingMemory(true)
     try {
       const res = await fetch('/api/memories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: newMemoryContent.trim(),
-          category: newMemoryCategory,
+          content: newMemory.content.trim(),
+          category: newMemory.category,
+          importance: newMemory.pinToContext ? 5 : newMemory.importance,
         }),
       })
       if (res.ok) {
-        setNewMemoryContent('')
+        setNewMemory({ content: '', category: 'preference', importance: 3, pinToContext: false })
+        setShowAddModal(false)
         await fetchMemories()
       }
     } catch {
@@ -112,6 +150,10 @@ export default function SettingsPage() {
       // ignore
     }
   }
+
+  const filteredMemories = memorySearch
+    ? memories.filter(m => m.content.toLowerCase().includes(memorySearch.toLowerCase()))
+    : memories
 
   useEffect(() => {
     fetchData()
@@ -329,103 +371,235 @@ export default function SettingsPage() {
         <div className="bg-white border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-bold text-gray-900">Agent Memories</h2>
+              <h2 className="font-bold text-gray-900">Memory Bank</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                Tell your agents what to remember. They'll use these in every conversation.
+                {memories.length} {memories.length === 1 ? 'memory' : 'memories'} stored
               </p>
             </div>
-            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
-              {memories.length} {memories.length === 1 ? 'memory' : 'memories'}
-            </span>
+            {!isDemo && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="text-xs font-semibold text-white px-4 py-1.5 hover:opacity-80 transition-opacity"
+                style={{ backgroundColor: '#0063FF' }}
+              >
+                + Add Memory
+              </button>
+            )}
           </div>
 
-          {/* Add memory form */}
-          {!isDemo && (
-            <div className="mb-4 space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMemoryContent}
-                  onChange={e => setNewMemoryContent(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddMemory()}
-                  placeholder="e.g. Always sign off as Coach Mike"
-                  className="flex-1 text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
-                />
-                <select
-                  value={newMemoryCategory}
-                  onChange={e => setNewMemoryCategory(e.target.value as MemoryCategory)}
-                  className="text-xs border border-gray-200 bg-white px-2 py-2 focus:outline-none focus:border-blue-400 transition-colors"
-                >
-                  <option value="preference">Preference</option>
-                  <option value="gym_context">Gym Context</option>
-                  <option value="member_fact">Member Fact</option>
-                  <option value="learned_pattern">Pattern</option>
-                </select>
-                <button
-                  onClick={handleAddMemory}
-                  disabled={addingMemory || !newMemoryContent.trim()}
-                  className="text-xs font-semibold text-white px-4 py-2 hover:opacity-80 transition-opacity disabled:opacity-50"
-                  style={{ backgroundColor: '#0063FF' }}
-                >
-                  {addingMemory ? 'Adding...' : 'Add'}
-                </button>
-              </div>
+          {/* Search */}
+          {memories.length > 3 && (
+            <div className="mb-4">
+              <input
+                type="text"
+                value={memorySearch}
+                onChange={e => setMemorySearch(e.target.value)}
+                placeholder="Search memories..."
+                className="w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+              />
             </div>
           )}
 
-          {/* Memory list */}
+          {/* Memory cards */}
           {memoriesLoading ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {[1, 2, 3].map(i => (
-                <div key={i} className="animate-pulse bg-gray-100 h-10" />
+                <div key={i} className="animate-pulse bg-gray-100 h-20" />
               ))}
             </div>
-          ) : memories.length === 0 ? (
-            <div className="text-center py-6">
+          ) : filteredMemories.length === 0 && memories.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-gray-200">
               <p className="text-sm text-gray-400">No memories yet.</p>
-              <p className="text-xs text-gray-300 mt-1">Add one above — agents will use it in every outreach.</p>
+              <p className="text-xs text-gray-300 mt-1">Tell your agents what to remember — they'll use it in every conversation.</p>
+              {!isDemo && (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="mt-3 text-xs font-semibold px-3 py-1.5 border transition-colors hover:opacity-80"
+                  style={{ borderColor: '#0063FF', color: '#0063FF' }}
+                >
+                  + Add your first memory
+                </button>
+              )}
             </div>
+          ) : filteredMemories.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No memories match "{memorySearch}"</p>
           ) : (
-            <div className="space-y-1">
-              {memories.map(memory => (
-                <div key={memory.id} className="flex items-start justify-between py-2 px-3 border border-gray-100 group hover:bg-gray-50 transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span
-                        className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 flex-shrink-0"
-                        style={{
-                          color: CATEGORY_COLORS[memory.category]?.color ?? '#6B7280',
-                          backgroundColor: CATEGORY_COLORS[memory.category]?.bg ?? '#F3F4F6',
-                        }}
-                      >
-                        {CATEGORY_LABELS[memory.category] ?? memory.category}
-                      </span>
-                      {memory.source === 'agent' && (
-                        <span className="text-[10px] font-medium text-gray-300 px-2 py-0.5" style={{ backgroundColor: '#F3F4F6' }}>
-                          Agent
+            <div className="space-y-2">
+              {filteredMemories.map(memory => (
+                <div key={memory.id} className="border border-gray-100 p-4 group hover:border-gray-200 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      {/* Category + source badges */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span
+                          className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5"
+                          style={{
+                            color: CATEGORY_COLORS[memory.category]?.color ?? '#6B7280',
+                            backgroundColor: CATEGORY_COLORS[memory.category]?.bg ?? '#F3F4F6',
+                          }}
+                        >
+                          {CATEGORY_LABELS[memory.category] ?? memory.category}
                         </span>
-                      )}
-                      {memory.source === 'system' && (
-                        <span className="text-[10px] font-medium text-gray-300 px-2 py-0.5" style={{ backgroundColor: '#F3F4F6' }}>
-                          System
+                        {memory.source === 'agent' && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#6B7280', backgroundColor: '#F3F4F6' }}>
+                            Agent-learned
+                          </span>
+                        )}
+                        {memory.source === 'system' && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#6B7280', backgroundColor: '#F3F4F6' }}>
+                            System
+                          </span>
+                        )}
+                        {memory.importance >= 5 && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}>
+                            Pinned
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <p className="text-sm text-gray-900">{memory.content}</p>
+
+                      {/* Meta row */}
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                          <span className="text-[10px] text-gray-400">Importance:</span>
+                          <ImportanceDots level={memory.importance} />
                         </span>
-                      )}
+                        <span className="text-[10px] text-gray-300">{relativeTime(memory.created_at)}</span>
+                        {memory.member_id && (
+                          <span className="text-[10px] text-gray-300">Member: {memory.member_id.slice(0, 8)}...</span>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-700 truncate">{memory.content}</p>
+
+                    {/* Delete */}
+                    {!isDemo && (
+                      <button
+                        onClick={() => handleDeleteMemory(memory.id)}
+                        className="text-xs text-gray-300 hover:text-red-500 transition-colors ml-3 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
-                  {!isDemo && (
-                    <button
-                      onClick={() => handleDeleteMemory(memory.id)}
-                      className="text-xs text-gray-300 hover:text-red-500 transition-colors ml-3 opacity-0 group-hover:opacity-100 flex-shrink-0 mt-1"
-                    >
-                      Remove
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Add Memory Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+            <div className="bg-white border border-gray-200 w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-gray-900">Add Memory</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Tell your agent something to remember.</p>
+                </div>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="text-gray-400 hover:text-gray-700 transition-colors text-lg"
+                >
+                  &times;
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Memory Content</p>
+                  <textarea
+                    value={newMemory.content}
+                    onChange={e => setNewMemory(prev => ({ ...prev, content: e.target.value }))}
+                    placeholder="e.g. Always sign off as Coach Dan"
+                    rows={3}
+                    className="w-full text-sm border border-gray-200 bg-white px-3 py-2 resize-y focus:outline-none focus:border-blue-400 transition-colors"
+                  />
+                </div>
+
+                {/* Category + Importance row */}
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Category</p>
+                    <select
+                      value={newMemory.category}
+                      onChange={e => setNewMemory(prev => ({ ...prev, category: e.target.value as MemoryCategory }))}
+                      className="w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+                    >
+                      <option value="preference">Preference</option>
+                      <option value="gym_context">Gym Context</option>
+                      <option value="member_fact">Member Fact</option>
+                      <option value="learned_pattern">Pattern</option>
+                    </select>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Importance</p>
+                    <div className="flex items-center gap-1 py-2 px-3 border border-gray-200">
+                      {[1, 2, 3, 4, 5].map(level => (
+                        <button
+                          key={level}
+                          onClick={() => setNewMemory(prev => ({ ...prev, importance: level, pinToContext: level >= 5 }))}
+                          className="w-4 h-4 rounded-full transition-colors"
+                          style={{
+                            backgroundColor: level <= newMemory.importance ? '#111827' : '#D1D5DB',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pin to Context toggle */}
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Pin to Context</p>
+                    <p className="text-xs text-gray-400">Always include in agent's prompt</p>
+                  </div>
+                  <button
+                    onClick={() => setNewMemory(prev => ({
+                      ...prev,
+                      pinToContext: !prev.pinToContext,
+                      importance: !prev.pinToContext ? 5 : 3,
+                    }))}
+                    className="relative transition-colors"
+                    style={{
+                      width: 44, height: 24, borderRadius: 12,
+                      backgroundColor: newMemory.pinToContext ? '#0063FF' : '#D1D5DB',
+                    }}
+                  >
+                    <span
+                      className="absolute bg-white transition-transform"
+                      style={{
+                        top: 2, left: 2, width: 20, height: 20, borderRadius: 10,
+                        transform: newMemory.pinToContext ? 'translateX(20px)' : 'translateX(0)',
+                      }}
+                    />
+                  </button>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setShowAddModal(false)}
+                    className="text-xs text-gray-400 hover:text-gray-700 transition-colors px-4 py-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddMemory}
+                    disabled={addingMemory || !newMemory.content.trim()}
+                    className="text-xs font-semibold text-white px-5 py-2 hover:opacity-80 transition-opacity disabled:opacity-50"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    {addingMemory ? 'Adding...' : 'Add Memory'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Gym connection */}
         <div className="bg-white  border border-gray-200 p-6">
