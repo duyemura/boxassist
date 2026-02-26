@@ -1,3 +1,10 @@
+---
+id: win-back
+applies_when: "member has cancelled their membership and may be open to returning"
+domain: retention
+triggers: ["membership_cancelled", "status_changed_to_cancelled"]
+---
+
 # Win-Back — Task Skill
 
 ## Role

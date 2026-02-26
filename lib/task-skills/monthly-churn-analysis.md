@@ -1,3 +1,10 @@
+---
+id: monthly-churn-analysis
+applies_when: "time to produce a monthly analysis of membership health, churn trends, and retention performance"
+domain: analysis
+triggers: ["monthly_review", "churn_report", "retention_analysis"]
+---
+
 # Monthly Churn Analysis — Task Skill
 
 ## Role

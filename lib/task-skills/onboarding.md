@@ -1,3 +1,10 @@
+---
+id: onboarding
+applies_when: "a new member just signed up and needs help building a gym habit in their first 30 days"
+domain: retention
+triggers: ["new_member", "signup", "first_30_days"]
+---
+
 # New Member Onboarding — Task Skill
 
 ## Role

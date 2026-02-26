@@ -1,3 +1,10 @@
+---
+id: staff-call-member
+applies_when: "a member situation requires a personal phone call from staff — escalated issues, no-shows, or high-touch moments"
+domain: retention
+triggers: ["no_show", "escalation_needs_call", "high_value_member"]
+---
+
 # Staff Call Member — Task Skill
 
 ## Role

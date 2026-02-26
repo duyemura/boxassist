@@ -1,3 +1,10 @@
+---
+id: churn-risk
+applies_when: "member attendance has dropped, they haven't visited recently, or their visit frequency is declining"
+domain: retention
+triggers: ["attendance_drop", "no_recent_visits", "frequency_decline"]
+---
+
 # Churn Risk — Task Skill
 
 ## Role

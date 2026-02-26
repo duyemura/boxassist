@@ -1,3 +1,10 @@
+---
+id: lead-followup
+applies_when: "a new lead or prospect has shown interest but hasn't committed or visited yet"
+domain: sales
+triggers: ["new_lead", "trial_signup", "inquiry", "lead_going_cold"]
+---
+
 # Lead Follow-Up — Task Skill
 
 ## Role

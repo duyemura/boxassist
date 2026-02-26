@@ -1,30 +1,40 @@
 /**
  * skill-loader.ts — Loads task-skill markdown files at runtime.
  *
- * Combines _base.md (shared rules) with the task-type-specific skill file
- * to produce a full system prompt for Claude.
+ * Two modes of skill selection:
+ *   1. Direct: task_type → skill file (legacy mapping, backward compatible)
+ *   2. Semantic: goal/context description → matched against skill file headers
  *
- * File mapping: task_type → filename
- *   churn_risk       → churn-risk.md
- *   win_back         → win-back.md
- *   lead_followup    → lead-followup.md
- *   payment_failed   → payment-recovery.md
- *   onboarding       → onboarding.md
- *   no_show          → staff-call-member.md
- *   monthly_analysis → monthly-churn-analysis.md
- *   ad_hoc           → ad-hoc.md
+ * Skill files have YAML front-matter with `applies_when` descriptions that
+ * enable AI-style matching without hardcoded type enums.
+ *
+ * Combines _base.md (shared rules) with one or more task-specific skill files
+ * to produce a full system prompt for Claude.
  */
 
-import { readFile } from 'fs/promises'
+import { readFile, readdir } from 'fs/promises'
 import { join } from 'path'
 import { getMemoriesForPrompt } from './db/memories'
 
 const SKILLS_DIR = join(process.cwd(), 'lib', 'task-skills')
 
-/** Map task_type values to their skill file names */
+// ── Skill file metadata (parsed from YAML front-matter) ─────────────────────
+
+export interface SkillMeta {
+  id: string
+  applies_when: string
+  domain: string
+  triggers: string[]
+  filename: string
+  content: string        // full file content (including front-matter)
+  body: string           // content without front-matter
+}
+
+// ── Legacy mapping (backward compatible — used as fallback) ──────────────────
+
 const TASK_TYPE_TO_FILE: Record<string, string> = {
   churn_risk: 'churn-risk.md',
-  renewal_at_risk: 'churn-risk.md',  // same playbook as churn
+  renewal_at_risk: 'churn-risk.md',
   win_back: 'win-back.md',
   lead_going_cold: 'lead-followup.md',
   lead_followup: 'lead-followup.md',
@@ -36,7 +46,8 @@ const TASK_TYPE_TO_FILE: Record<string, string> = {
   ad_hoc: 'ad-hoc.md',
 }
 
-/** Cache loaded files in memory (they don't change at runtime) */
+// ── File cache ───────────────────────────────────────────────────────────────
+
 const cache = new Map<string, string>()
 
 async function loadFile(filename: string): Promise<string> {
@@ -52,6 +63,177 @@ async function loadFile(filename: string): Promise<string> {
   }
 }
 
+// ── YAML front-matter parsing ────────────────────────────────────────────────
+
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n/
+
+/**
+ * Parse simple YAML front-matter from a skill file.
+ * Supports: string values, arrays (bracket syntax: ["a", "b"]).
+ * Does NOT use a full YAML parser — keeps dependencies minimal.
+ */
+export function parseSkillFrontMatter(content: string): {
+  meta: Record<string, string | string[]>
+  body: string
+} {
+  const match = content.match(FRONTMATTER_RE)
+  if (!match) return { meta: {}, body: content }
+
+  const yamlBlock = match[1]
+  const body = content.slice(match[0].length)
+  const meta: Record<string, string | string[]> = {}
+
+  for (const line of yamlBlock.split('\n')) {
+    const colonIdx = line.indexOf(':')
+    if (colonIdx === -1) continue
+
+    const key = line.slice(0, colonIdx).trim()
+    let value = line.slice(colonIdx + 1).trim()
+
+    // Handle array syntax: ["a", "b", "c"]
+    if (value.startsWith('[') && value.endsWith(']')) {
+      const inner = value.slice(1, -1)
+      meta[key] = inner
+        .split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean)
+    } else {
+      // Strip surrounding quotes
+      meta[key] = value.replace(/^["']|["']$/g, '')
+    }
+  }
+
+  return { meta, body }
+}
+
+// ── Skill index (loaded once, cached) ────────────────────────────────────────
+
+let skillIndex: SkillMeta[] | null = null
+
+/**
+ * Load and index all skill files (excluding _base.md).
+ * Cached after first call — skill files don't change at runtime.
+ */
+export async function loadSkillIndex(): Promise<SkillMeta[]> {
+  if (skillIndex) return skillIndex
+
+  try {
+    const files = await readdir(SKILLS_DIR)
+    const mdFiles = files.filter(f => f.endsWith('.md') && f !== '_base.md')
+
+    const skills: SkillMeta[] = []
+    for (const filename of mdFiles) {
+      const content = await loadFile(filename)
+      if (!content) continue
+
+      const { meta, body } = parseSkillFrontMatter(content)
+
+      skills.push({
+        id: (meta.id as string) || filename.replace('.md', ''),
+        applies_when: (meta.applies_when as string) || '',
+        domain: (meta.domain as string) || 'general',
+        triggers: (meta.triggers as string[]) || [],
+        filename,
+        content,
+        body,
+      })
+    }
+
+    skillIndex = skills
+    return skills
+  } catch {
+    skillIndex = []
+    return []
+  }
+}
+
+/**
+ * Select relevant skills for a goal/context description.
+ *
+ * Matches against skill `applies_when` descriptions and `triggers` arrays.
+ * Returns up to `maxSkills` skills ranked by relevance.
+ *
+ * Matching strategy (simple keyword overlap — no AI call needed):
+ *   1. Check if any trigger keyword appears in the description
+ *   2. Score each skill by word overlap with applies_when
+ *   3. Return top matches above a minimum threshold
+ *
+ * Falls back to legacy TASK_TYPE_TO_FILE mapping if taskType is provided.
+ */
+export async function selectRelevantSkills(
+  description: string,
+  opts?: { taskType?: string; maxSkills?: number },
+): Promise<SkillMeta[]> {
+  const maxSkills = opts?.maxSkills ?? 2
+  const skills = await loadSkillIndex()
+
+  if (skills.length === 0) return []
+
+  const descLower = description.toLowerCase()
+  const descWords = new Set(descLower.split(/\s+/).filter(w => w.length > 3))
+
+  // Score each skill
+  const scored = skills.map(skill => {
+    let score = 0
+
+    // Trigger match (strongest signal — exact keyword hit)
+    for (const trigger of skill.triggers) {
+      if (descLower.includes(trigger.toLowerCase())) {
+        score += 10
+      }
+    }
+
+    // applies_when word overlap
+    const applyWords = skill.applies_when.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+    for (const word of applyWords) {
+      if (descWords.has(word)) {
+        score += 1
+      }
+    }
+
+    // Bonus for domain match in description
+    if (descLower.includes(skill.domain)) {
+      score += 3
+    }
+
+    return { skill, score }
+  })
+
+  // Sort by score descending, take top N above threshold
+  const matches = scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxSkills)
+    .map(s => s.skill)
+
+  // If no semantic matches but we have a legacy taskType, fall back
+  if (matches.length === 0 && opts?.taskType) {
+    const filename = TASK_TYPE_TO_FILE[opts.taskType]
+    if (filename) {
+      const found = skills.find(s => s.filename === filename)
+      if (found) return [found]
+    }
+  }
+
+  return matches
+}
+
+/**
+ * Load all skill file bodies (for AI analysis prompts).
+ * Returns base + all skills concatenated with headers.
+ */
+export async function loadAllSkillSummaries(): Promise<string> {
+  const skills = await loadSkillIndex()
+
+  const summaries = skills.map(s => {
+    return `### ${s.id}\n**When:** ${s.applies_when}\n**Domain:** ${s.domain}`
+  })
+
+  return summaries.join('\n\n')
+}
+
+// ── Public API (backward compatible) ─────────────────────────────────────────
+
 /**
  * Load the combined skill prompt for a task type.
  * Returns _base.md + the task-specific skill file, separated by a divider.
@@ -62,6 +244,11 @@ export async function loadSkillPrompt(taskType: string): Promise<string> {
   const skillFile = TASK_TYPE_TO_FILE[taskType]
 
   if (!skillFile) {
+    // Try semantic fallback: maybe it's a new AI-assigned type
+    const skills = await selectRelevantSkills(taskType, { maxSkills: 1 })
+    if (skills.length > 0) {
+      return `${base}\n\n---\n\n${skills[0].body}`
+    }
     return base
   }
 
@@ -71,6 +258,19 @@ export async function loadSkillPrompt(taskType: string): Promise<string> {
   }
 
   return `${base}\n\n---\n\n${skill}`
+}
+
+/**
+ * Build a combined skill prompt from multiple relevant skills.
+ * Used when the AI selects skills semantically rather than by type mapping.
+ */
+export async function buildMultiSkillPrompt(skills: SkillMeta[]): Promise<string> {
+  const base = await loadFile('_base.md')
+
+  if (skills.length === 0) return base
+
+  const skillBodies = skills.map(s => s.body).join('\n\n---\n\n')
+  return `${base}\n\n---\n\n${skillBodies}`
 }
 
 /**
@@ -154,4 +354,12 @@ async function loadMemories(
     console.warn('[skill-loader] Failed to load gym memories:', (err as Error).message)
     return ''
   }
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+/** Clear all caches (for tests) */
+export function _clearCaches(): void {
+  cache.clear()
+  skillIndex = null
 }

@@ -14,6 +14,45 @@ npm run lint         # eslint
 
 **Never start the dev server.** The user runs `npm run dev` themselves. Do not spin it up to test things — use `npm run build` or `npm run test` to validate changes instead.
 
+## Core Architectural Principle — Read This First
+
+**AI reasons. Code plumbs.**
+
+This system is designed to work for any retention-critical business — CrossFit gyms, yoga studios, BJJ schools, Pilates studios, and future verticals we haven't entered yet. That only works if we keep domain logic out of the code and let the AI reason from context.
+
+### The Three Columns
+
+| Hardcode in code | AI reasons about | Lives in context (memories, skills, schemas) |
+|---|---|---|
+| Infrastructure: webhooks, cron, email delivery | Pattern detection: what's abnormal for this business | Business memories: what we've learned about this specific business |
+| Safety rails: send limits, escalation triggers, opt-out | Risk assessment: who needs attention and why | Skill files: how to approach different situations |
+| Attribution: did they come back? (needs a concrete definition) | Categorization: what kind of situation is this | Connector schemas: what data is available and what it means |
+| Security: `gym_id` scoping, auth, encryption | Message crafting: what to say for this audience | Cross-business patterns: anonymized learnings from outcomes |
+| Reliability: command bus, retry, audit log | Follow-up timing: when is the right moment to act | |
+| | Escalation judgment: what needs human attention | |
+
+### What This Means When Writing Code
+
+**Before adding any domain logic, ask:** Should the AI be reasoning about this instead?
+
+- Adding a threshold like `if (daysSinceCheckin > 14)`? → **Stop.** That's a hardcoded gym assumption. Let the AI assess what's abnormal for this specific business given its context.
+- Adding a new `task_type` to an enum? → **Stop.** Task types are hints the AI chooses, not categories that drive behavior. Tasks are goal-driven objects with freeform context.
+- Adding a new `_handleSomeEvent()` handler? → **Stop.** The AI should evaluate "something happened — does it matter?" not a switch statement we wrote.
+- Adding gym-specific language to a prompt? → **Stop.** Put it in a skill file or memory, not hardcoded in the agent class.
+- Creating a type called `PPCustomer` or `GymMember`? → **Caution.** Abstract entities (`BusinessEntity`, `EngagementEvent`) work across business types. PushPress-specific types belong in the connector layer only.
+
+### What's Fine to Hardcode
+
+- Webhook registration and event routing infrastructure
+- Command bus: `SendEmail`, `SendSMS`, `CreateTask` — these are plumbing, not logic
+- Daily send limits, shadow mode, opt-out enforcement — safety never delegates to AI
+- Attribution logic — "did they check in within 14 days?" needs a concrete answer for ROI
+- Auth, encryption, `gym_id` scoping — security is never AI-driven
+
+**Read `docs/AI-NATIVE-ARCHITECTURE.md`** for the full design doc, examples of right vs. wrong, and the refactor roadmap for existing hardcoded logic.
+
+---
+
 ## Vision & North Star
 
 Read `docs/VISION.md` before making architectural decisions.
@@ -24,7 +63,7 @@ Key points:
 - **Distribution:** PushPress partnership (3,000 gyms) is the growth path, not direct acquisition
 - **The demo** is the top of funnel — visitor gets a real email in their inbox in 30s
 - **Pricing anchor:** replacing a $2,000-4,000/month marketing agency at $97-197/month
-- **The moat:** closed-loop ROI attribution + cross-gym learning — no current vendor can do this
+- **The moat:** closed-loop ROI attribution + cross-business learning — no current vendor can do this
 
 ## Tech Stack
 

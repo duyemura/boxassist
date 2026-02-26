@@ -14,10 +14,16 @@
  */
 
 import { BaseAgent } from './BaseAgent'
-import { buildDraftingPrompt } from '../skill-loader'
+import {
+  buildDraftingPrompt,
+  loadAllSkillSummaries,
+  selectRelevantSkills,
+  buildMultiSkillPrompt,
+} from '../skill-loader'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Known insight types — AI can also assign new types beyond this list
 export type InsightType =
   | 'churn_risk'            // member attendance dropping
   | 'renewal_at_risk'       // renewal coming + attendance dropping
@@ -26,6 +32,7 @@ export type InsightType =
   | 'no_show'               // missed scheduled appointment
   | 'new_member_onboarding' // new member, check if settling in
   | 'win_back'              // cancelled member worth targeting
+  | (string & {})           // AI can assign any type — this preserves autocomplete for known types
 
 export interface MemberData {
   id: string
@@ -311,14 +318,165 @@ export class GMAgent extends BaseAgent {
     return insights
   }
 
+  // ── analyzeGymAI ───────────────────────────────────────────────────────────
+
+  /**
+   * AI-driven analysis: sends member data + skill context to Claude,
+   * which reasons about who needs attention and why.
+   *
+   * Returns GymInsight[] — same shape as analyzeGym() for compatibility.
+   * Uses Haiku for cost efficiency (~$0.02 per 100 members).
+   */
+  async analyzeGymAI(snapshot: GymSnapshot, gymId: string): Promise<GymInsight[]> {
+    // Build member summaries for the prompt (compact but informative)
+    const now = new Date()
+    const memberSummaries = snapshot.members
+      .filter(m => m.status === 'active' || m.status === 'paused')
+      .map(m => {
+        const daysSince = m.lastCheckinAt
+          ? Math.floor((now.getTime() - new Date(m.lastCheckinAt).getTime()) / (1000 * 60 * 60 * 24))
+          : null
+        return {
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          status: m.status,
+          memberSince: m.memberSince,
+          monthlyRevenue: m.monthlyRevenue,
+          daysSinceLastVisit: daysSince,
+          recentCheckins30d: m.recentCheckinsCount,
+          previousCheckins30d: m.previousCheckinsCount,
+          renewalDate: m.renewalDate ?? null,
+          membershipType: m.membershipType,
+        }
+      })
+
+    // Include payment events
+    const paymentIssues = snapshot.paymentEvents
+      .filter(p => p.eventType === 'payment_failed')
+      .map(p => ({
+        memberId: p.memberId,
+        memberName: p.memberName,
+        memberEmail: p.memberEmail,
+        amount: p.amount,
+        failedAt: p.failedAt,
+      }))
+
+    // Load skill summaries for context
+    let skillSummaries = ''
+    try {
+      skillSummaries = await loadAllSkillSummaries()
+    } catch {
+      // Non-fatal
+    }
+
+    const system = `You are an AI General Manager analyzing a gym's membership data. Your job is to identify members who need attention — people at risk of churning, payment issues, or any situation where proactive outreach would help.
+
+## Available task types (you can also create new types if none fit):
+${skillSummaries}
+
+## Rules:
+- Only flag members who genuinely need attention — don't create noise
+- Consider each member's full context: visit frequency, tenure, revenue, trends
+- A member visiting 1x/week at a yoga studio is normal; 1x/week at a CrossFit box (where 3-4x is typical) is a drop
+- Payment failures are always critical
+- New members (< 30 days) with no visits need onboarding attention
+- Don't flag members who visited in the last 3 days (they're fine)
+- Sort by priority: critical > high > medium
+
+## Output
+Respond with ONLY valid JSON (no markdown fences):
+{
+  "insights": [
+    {
+      "type": "churn_risk | win_back | payment_failed | lead_going_cold | no_show | new_member_onboarding | renewal_at_risk | <any_new_type>",
+      "priority": "critical | high | medium | low",
+      "memberId": "the member's id",
+      "memberName": "the member's name",
+      "memberEmail": "the member's email",
+      "title": "short human-readable title (e.g. 'Sarah hasn\\'t been in 12 days')",
+      "detail": "2-3 sentence explanation of why this needs attention",
+      "recommendedAction": "what the gym should do",
+      "estimatedImpact": "revenue or engagement at risk (e.g. '$150/mo at risk')"
+    }
+  ]
+}`
+
+    const prompt = `Gym: ${snapshot.gymName ?? 'Gym'} (${memberSummaries.length} active/paused members)
+Snapshot captured: ${snapshot.capturedAt}
+
+## Members:
+${JSON.stringify(memberSummaries, null, 2)}
+
+${paymentIssues.length > 0 ? `## Payment Issues:\n${JSON.stringify(paymentIssues, null, 2)}` : ''}
+
+Analyze these members and return the ones who need attention.`
+
+    try {
+      const response = await this.deps.claude.evaluate(system, prompt)
+
+      // Parse AI response
+      const jsonMatch = response.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        console.warn('[GMAgent] analyzeGymAI: no JSON in response, falling back to formula')
+        return this.analyzeGym(snapshot)
+      }
+
+      const parsed = JSON.parse(jsonMatch[0])
+      const aiInsights: GymInsight[] = (parsed.insights ?? []).map((i: any) => ({
+        type: (i.type || 'churn_risk') as InsightType,
+        priority: (['critical', 'high', 'medium', 'low'].includes(i.priority) ? i.priority : 'medium') as GymInsight['priority'],
+        memberId: i.memberId,
+        memberName: i.memberName,
+        memberEmail: i.memberEmail,
+        title: i.title ?? `${i.memberName} needs attention`,
+        detail: i.detail ?? '',
+        recommendedAction: i.recommendedAction ?? 'Review and reach out',
+        estimatedImpact: i.estimatedImpact ?? '',
+      }))
+
+      // Validate: run formula as sanity check
+      const formulaInsights = this.analyzeGym(snapshot)
+      const formulaCritical = formulaInsights.filter(i => i.priority === 'critical')
+      const aiCriticalIds = new Set(aiInsights.filter(i => i.priority === 'critical').map(i => i.memberId))
+
+      // If formula found critical members that AI missed, merge them in
+      for (const missed of formulaCritical) {
+        if (missed.memberId && !aiCriticalIds.has(missed.memberId)) {
+          const aiHasMember = aiInsights.some(i => i.memberId === missed.memberId)
+          if (!aiHasMember) {
+            console.warn(`[GMAgent] AI missed critical member ${missed.memberName} — adding from formula`)
+            aiInsights.push(missed)
+          }
+        }
+      }
+
+      // Sort by priority
+      aiInsights.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3))
+
+      return aiInsights
+    } catch (err) {
+      console.error('[GMAgent] analyzeGymAI failed, falling back to formula:', err)
+      return this.analyzeGym(snapshot)
+    }
+  }
+
   // ── runAnalysis ─────────────────────────────────────────────────────────────
 
   /**
    * Main analysis run — called by cron or on-demand.
-   * Fetches data, runs analysis, creates agent_tasks for insights found.
+   *
+   * Uses AI-driven analysis by default. Falls back to formula-based analysis
+   * if Claude call fails. Pass opts.useFormula to force formula mode (for tests).
    */
-  async runAnalysis(gymId: string, data: GymSnapshot): Promise<AnalysisResult> {
-    const insights = this.analyzeGym(data)
+  async runAnalysis(
+    gymId: string,
+    data: GymSnapshot,
+    opts?: { useFormula?: boolean },
+  ): Promise<AnalysisResult> {
+    const insights = opts?.useFormula
+      ? this.analyzeGym(data)
+      : await this.analyzeGymAI(data, gymId)
 
     let tasksCreated = 0
 
@@ -380,15 +538,27 @@ export class GMAgent extends BaseAgent {
    * Loads the appropriate task-skill for the insight type, then calls Claude.
    */
   async draftMessage(insight: GymInsight, gymContext: GymContext): Promise<string> {
-    // Load skill-aware drafting prompt based on insight type
+    // Load skill-aware drafting prompt — try direct type mapping first,
+    // then semantic matching for AI-assigned types
     let system: string
     try {
       system = await buildDraftingPrompt(insight.type, { gymId: gymContext.gymId })
     } catch {
-      // Fallback if skill loading fails
-      system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names.
+      // Try semantic selection based on the insight's description
+      try {
+        const description = `${insight.type} ${insight.title} ${insight.detail}`
+        const skills = await selectRelevantSkills(description, { taskType: insight.type })
+        if (skills.length > 0) {
+          system = await buildMultiSkillPrompt(skills)
+        } else {
+          throw new Error('no skills matched')
+        }
+      } catch {
+        // Final fallback
+        system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names.
 
 Return ONLY the message text — no subject line, no explanation, just the message.`
+      }
     }
 
     const insightContext = [

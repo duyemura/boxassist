@@ -276,9 +276,9 @@ export async function createInsightTask(params: {
         // Everything except escalations
         qualifies = true
       } else if (autopilotLevel === 'smart') {
-        // Routine: churn_risk (medium/high), win_back, lead_followup, onboarding
-        const routineTypes = ['churn_risk', 'renewal_at_risk', 'win_back', 'lead_followup', 'lead_going_cold', 'new_member_onboarding', 'onboarding', 'no_show']
-        qualifies = routineTypes.includes(params.insight.type)
+        // Smart mode: auto-send non-critical, non-escalation tasks.
+        // Priority-based instead of hardcoded type list — works with AI-assigned types.
+        qualifies = params.insight.priority !== 'critical'
       }
 
       if (qualifies) {

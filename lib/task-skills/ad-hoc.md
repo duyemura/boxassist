@@ -1,3 +1,10 @@
+---
+id: ad-hoc
+applies_when: "a one-off task that doesn't fit standard categories — owner-requested actions, custom outreach, or unique situations"
+domain: general
+triggers: ["custom_request", "owner_initiated", "unclassified"]
+---
+
 # Ad-Hoc / Custom Task — Task Skill
 
 ## Role

@@ -1,3 +1,10 @@
+---
+id: payment-recovery
+applies_when: "a member's payment has failed, their billing is in alert status, or there's a payment issue to resolve"
+domain: retention
+triggers: ["payment_failed", "billing_alert", "card_expired"]
+---
+
 # Payment Recovery — Task Skill
 
 ## Role
