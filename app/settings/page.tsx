@@ -86,6 +86,13 @@ export default function SettingsPage() {
   const [gmailConnected, setGmailConnected] = useState<string | null>(null)
   const [gmailBanner, setGmailBanner] = useState<string | null>(null)
 
+  // Autopilot state
+  const [autopilotLevel, setAutopilotLevel] = useState<'draft_only' | 'smart' | 'full_auto'>('draft_only')
+  const [autopilotLoading, setAutopilotLoading] = useState(true)
+  const [autopilotSaving, setAutopilotSaving] = useState(false)
+  const [shadowModeUntil, setShadowModeUntil] = useState<string | null>(null)
+  const [shadowModeActive, setShadowModeActive] = useState(false)
+
   // Memory state
   const [memories, setMemories] = useState<GymMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(true)
@@ -98,6 +105,44 @@ export default function SettingsPage() {
   })
   const [addingMemory, setAddingMemory] = useState(false)
   const [memorySearch, setMemorySearch] = useState('')
+
+  const fetchAutopilot = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/autopilot')
+      if (res.ok) {
+        const json = await res.json()
+        setAutopilotLevel(json.autopilotLevel ?? 'draft_only')
+        setShadowModeUntil(json.shadowModeUntil ?? null)
+        setShadowModeActive(json.shadowModeActive ?? false)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAutopilotLoading(false)
+    }
+  }, [])
+
+  const handleAutopilotChange = async (level: 'draft_only' | 'smart' | 'full_auto') => {
+    if (level === autopilotLevel) return
+    setAutopilotSaving(true)
+    try {
+      const res = await fetch('/api/settings/autopilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      })
+      if (res.ok) {
+        const json = await res.json()
+        setAutopilotLevel(json.autopilotLevel ?? level)
+        // Re-fetch to get updated shadow mode
+        await fetchAutopilot()
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAutopilotSaving(false)
+    }
+  }
 
   const fetchMemories = useCallback(async () => {
     try {
@@ -158,6 +203,7 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchData()
     fetchGmailStatus()
+    fetchAutopilot()
     fetchMemories()
   }, [])
 
@@ -315,6 +361,115 @@ export default function SettingsPage() {
               >
                 {portalLoading ? 'Loading…' : 'Manage billing →'}
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* Autopilot Mode */}
+        <div className="bg-white border border-gray-200 p-6">
+          <div className="mb-4">
+            <h2 className="font-bold text-gray-900">Autopilot Mode</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Control how much the agent does on its own.
+            </p>
+          </div>
+
+          {autopilotLoading ? (
+            <div className="animate-pulse space-y-3">
+              {[1, 2, 3].map(i => <div key={i} className="bg-gray-100 h-16" />)}
+            </div>
+          ) : isDemo ? (
+            <div className="text-sm text-gray-400">Connect your gym to configure autopilot.</div>
+          ) : (
+            <div className="space-y-2">
+              {([
+                {
+                  level: 'draft_only' as const,
+                  label: 'Draft Only',
+                  description: 'Agent drafts messages. You review and send every one.',
+                  detail: 'Best for getting started — see exactly what the agent writes before anything goes out.',
+                },
+                {
+                  level: 'smart' as const,
+                  label: 'Smart Send',
+                  description: 'Routine messages send automatically. Edge cases queue for your review.',
+                  detail: 'High-confidence outreach goes out instantly. Escalations and unusual cases still need your approval.',
+                },
+                {
+                  level: 'full_auto' as const,
+                  label: 'Full Auto',
+                  description: 'Agent handles everything. You see results in the dashboard.',
+                  detail: 'Only escalations (billing issues, complaints, injuries) surface for your review. Everything else runs.',
+                },
+              ]).map(option => {
+                const isActive = autopilotLevel === option.level
+                return (
+                  <button
+                    key={option.level}
+                    onClick={() => handleAutopilotChange(option.level)}
+                    disabled={autopilotSaving}
+                    className="w-full text-left p-4 border transition-colors group"
+                    style={{
+                      borderColor: isActive ? '#0063FF' : '#E5E7EB',
+                      backgroundColor: isActive ? 'rgba(0,99,255,0.03)' : 'white',
+                    }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">{option.label}</span>
+                          {isActive && (
+                            <span
+                              className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5"
+                              style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}
+                            >
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{option.description}</p>
+                        {isActive && (
+                          <p className="text-xs text-gray-400 mt-1">{option.detail}</p>
+                        )}
+                      </div>
+                      {/* Radio indicator */}
+                      <div
+                        className="w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center"
+                        style={{ borderColor: isActive ? '#0063FF' : '#D1D5DB' }}
+                      >
+                        {isActive && (
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#0063FF' }} />
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+
+              {/* Shadow mode notice */}
+              {shadowModeActive && shadowModeUntil && (
+                <div className="mt-3 px-4 py-3 border" style={{ borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.05)' }}>
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs mt-0.5" style={{ color: '#F59E0B' }}>&#9679;</span>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-900">Shadow Mode Active</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        For the first 7 days, the agent logs what it <em>would</em> send without actually sending.
+                        You'll see "would have sent" cards in your dashboard to build confidence.
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Ends {new Date(shadowModeUntil).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Safety note */}
+              <p className="text-[10px] text-gray-300 mt-2 px-1">
+                Escalations (billing, complaints, injuries) always require your review regardless of mode.
+                Daily send limit: 10 messages per day.
+              </p>
             </div>
           )}
         </div>
@@ -534,49 +689,50 @@ export default function SettingsPage() {
                       <option value="learned_pattern">Pattern</option>
                     </select>
                   </div>
-                  <div>
-                    <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Importance</p>
-                    <div className="flex items-center gap-1 py-2 px-3 border border-gray-200">
-                      {[1, 2, 3, 4, 5].map(level => (
-                        <button
-                          key={level}
-                          onClick={() => setNewMemory(prev => ({ ...prev, importance: level, pinToContext: level >= 5 }))}
-                          className="w-4 h-4 rounded-full transition-colors"
-                          style={{
-                            backgroundColor: level <= newMemory.importance ? '#111827' : '#D1D5DB',
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
                 </div>
 
-                {/* Pin to Context toggle */}
-                <div className="flex items-center justify-between py-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Pin to Context</p>
-                    <p className="text-xs text-gray-400">Always include in agent's prompt</p>
+                {/* Importance selector with context labels */}
+                <div>
+                  <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-2">Importance</p>
+                  <div className="space-y-1">
+                    {([
+                      { level: 1, label: 'Low', hint: 'Background context — used only when highly relevant' },
+                      { level: 2, label: 'Minor', hint: 'Considered when the topic comes up' },
+                      { level: 3, label: 'Normal', hint: 'Included when the agent works on matching tasks' },
+                      { level: 4, label: 'High', hint: 'Always included in the agent\'s context' },
+                      { level: 5, label: 'Critical', hint: 'Pinned — never omitted from any conversation' },
+                    ] as const).map(option => {
+                      const isSelected = newMemory.importance === option.level
+                      return (
+                        <button
+                          key={option.level}
+                          onClick={() => setNewMemory(prev => ({
+                            ...prev,
+                            importance: option.level,
+                            pinToContext: option.level >= 5,
+                          }))}
+                          className="w-full text-left flex items-center gap-3 px-3 py-2 border transition-colors"
+                          style={{
+                            borderColor: isSelected ? '#0063FF' : '#E5E7EB',
+                            backgroundColor: isSelected ? 'rgba(0,99,255,0.03)' : 'white',
+                          }}
+                        >
+                          <ImportanceDots level={option.level} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium text-gray-900">{option.label}</span>
+                            {isSelected && (
+                              <span className="text-[10px] text-gray-400 ml-2">{option.hint}</span>
+                            )}
+                          </div>
+                          {option.level >= 5 && isSelected && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5" style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}>
+                              PINNED
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
-                  <button
-                    onClick={() => setNewMemory(prev => ({
-                      ...prev,
-                      pinToContext: !prev.pinToContext,
-                      importance: !prev.pinToContext ? 5 : 3,
-                    }))}
-                    className="relative transition-colors"
-                    style={{
-                      width: 44, height: 24, borderRadius: 12,
-                      backgroundColor: newMemory.pinToContext ? '#0063FF' : '#D1D5DB',
-                    }}
-                  >
-                    <span
-                      className="absolute bg-white transition-transform"
-                      style={{
-                        top: 2, left: 2, width: 20, height: 20, borderRadius: 10,
-                        transform: newMemory.pinToContext ? 'translateX(20px)' : 'translateX(0)',
-                      }}
-                    />
-                  </button>
                 </div>
 
                 {/* Actions */}

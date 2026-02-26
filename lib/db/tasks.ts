@@ -11,6 +11,9 @@ import type {
 } from '../types/agents'
 import type { GymInsight } from '../agents/GMAgent'
 
+/** Max autopilot messages per gym per day */
+export const DAILY_AUTOPILOT_LIMIT = 10
+
 // Fixed UUID for the PushPress East demo gym.
 // Corresponds to the row inserted by migration 001_phase1_agent_tasks.sql.
 export const DEMO_GYM_ID = '00000000-0000-0000-0000-000000000001'
@@ -184,35 +187,66 @@ export async function createAdHocTask(params: {
 // Creates an agent_task from a GMAgent GymInsight.
 // Called by GMAgent.runAnalysis and GMAgent.handleEvent.
 //
-// When gym has autopilot_enabled, tasks skip approval (except escalations).
-// During shadow mode (first 7 days), tasks are logged but not auto-sent.
+// Autopilot levels:
+//   draft_only  → all tasks require approval
+//   smart       → routine messages auto-send; escalations + edge cases need approval
+//   full_auto   → everything auto-sends except escalations
+//
+// Shadow mode: first 7 days after enabling smart/full_auto, tasks still
+// require approval but context notes they would have auto-sent.
 // ============================================================
 export async function createInsightTask(params: {
   gymId: string
   insight: GymInsight
   causationEventId?: string
 }): Promise<AgentTask> {
-  // Check if gym has autopilot enabled
   let requiresApproval = true
+  let wouldAutoSend = false
+
   const { data: gym } = await supabaseAdmin
     .from('gyms')
-    .select('autopilot_enabled, autopilot_enabled_at')
+    .select('autopilot_enabled, autopilot_enabled_at, autopilot_level')
     .eq('id', params.gymId)
     .single()
 
-  if (gym?.autopilot_enabled) {
-    // Escalations always require approval
-    const isEscalation = params.insight.priority === 'critical' || params.insight.type === 'payment_failed'
-    if (!isEscalation) {
-      // Check shadow mode: first 7 days after enabling
-      const enabledAt = gym.autopilot_enabled_at ? new Date(gym.autopilot_enabled_at) : new Date()
-      const shadowEnd = new Date(enabledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
-      const inShadowMode = shadowEnd > new Date()
+  const autopilotLevel = (gym?.autopilot_level ?? 'draft_only') as string
+  const isEscalation = params.insight.priority === 'critical' || params.insight.type === 'payment_failed'
 
-      if (!inShadowMode) {
-        requiresApproval = false
+  if (gym?.autopilot_enabled && autopilotLevel !== 'draft_only') {
+    // Escalations always require approval, regardless of level
+    if (!isEscalation) {
+      // Determine if this task type qualifies for auto-send at this level
+      let qualifies = false
+
+      if (autopilotLevel === 'full_auto') {
+        // Everything except escalations
+        qualifies = true
+      } else if (autopilotLevel === 'smart') {
+        // Routine: churn_risk (medium/high), win_back, lead_followup, onboarding
+        const routineTypes = ['churn_risk', 'renewal_at_risk', 'win_back', 'lead_followup', 'lead_going_cold', 'new_member_onboarding', 'onboarding', 'no_show']
+        qualifies = routineTypes.includes(params.insight.type)
       }
-      // In shadow mode: still requires_approval but context notes it would have auto-sent
+
+      if (qualifies) {
+        // Check shadow mode: first 7 days after enabling
+        const enabledAt = gym.autopilot_enabled_at ? new Date(gym.autopilot_enabled_at) : new Date()
+        const shadowEnd = new Date(enabledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
+        const inShadowMode = shadowEnd > new Date()
+
+        if (inShadowMode) {
+          // Still require approval, but flag it
+          wouldAutoSend = true
+        } else {
+          // Check daily send limit before allowing auto-send
+          const todayCount = await getAutopilotSendCountToday(params.gymId)
+          if (todayCount >= DAILY_AUTOPILOT_LIMIT) {
+            // Over limit — queue for manual approval
+            wouldAutoSend = true // mark in context so owner knows why
+          } else {
+            requiresApproval = false
+          }
+        }
+      }
     }
   }
 
@@ -230,7 +264,33 @@ export async function createInsightTask(params: {
       draftMessage: params.insight.draftMessage,
       recommendedAction: params.insight.recommendedAction,
       priority: params.insight.priority,
+      ...(wouldAutoSend ? { shadowMode: true, wouldAutoSend: true } : {}),
     },
     requiresApproval,
   })
+}
+
+// ============================================================
+// getAutopilotSendCountToday
+// Counts auto-sent tasks (requires_approval=false, non-ad_hoc) for a gym today.
+// Used to enforce the daily autopilot send limit.
+// ============================================================
+export async function getAutopilotSendCountToday(gymId: string): Promise<number> {
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const { count, error } = await supabaseAdmin
+    .from('agent_tasks')
+    .select('id', { count: 'exact', head: true })
+    .eq('gym_id', gymId)
+    .eq('requires_approval', false)
+    .neq('task_type', 'ad_hoc')
+    .gte('created_at', todayStart.toISOString())
+
+  if (error) {
+    console.warn('getAutopilotSendCountToday failed:', error.message)
+    return 0
+  }
+
+  return count ?? 0
 }

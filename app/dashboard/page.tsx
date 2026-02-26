@@ -298,7 +298,9 @@ function DashboardContent() {
   const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
   const gymName = isDemo ? 'PushPress East' : (data?.gym?.gym_name ?? data?.gym?.name ?? 'Your Gym')
   const memberCount = data?.gym?.member_count ?? data?.gym?.memberCount ?? 0
-  const executionMode: 'manual' | 'limited_auto' = data?.gym?.execution_mode ?? 'manual'
+  // Map autopilot_level to execution mode for UI components
+  const autopilotLevel = data?.gym?.autopilot_level ?? 'draft_only'
+  const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
 
   const atRiskAutopilot = autopilots.find((a: any) => a.skill_type === 'at_risk_detector')
   const gmLastRunAt: string | undefined = atRiskAutopilot?.last_run_at ?? data?.recentRuns?.[0]?.created_at
