@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
       webhookRegistered = true
 
       // Store webhook ID so we can deactivate it on disconnect
-      if (gym) {
+      if (account) {
         await supabaseAdmin
           .from('accounts')
           .update({ webhook_id: result.webhookId })
@@ -162,8 +162,18 @@ export async function POST(req: NextRequest) {
       console.error('[connect] Webhook registration failed:', err.message)
     }
 
+    // Ensure this user is in team_members for the account
+    if (account) {
+      await supabaseAdmin
+        .from('team_members')
+        .upsert(
+          { account_id: account.id, user_id: session.id, role: 'owner' },
+          { onConflict: 'account_id,user_id' }
+        )
+    }
+
     // Create default at_risk_detector autopilot if not existing
-    if (gym) {
+    if (account) {
       const { data: existingAutopilot } = await supabaseAdmin
         .from('autopilots')
         .select('id')

@@ -152,6 +152,12 @@ export default function ReviewQueue({
                 Skip
               </button>
               <button
+                onClick={(e) => { e.stopPropagation(); onSelectItem(item) }}
+                className="text-xs font-semibold px-3 py-1 transition-colors border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300"
+              >
+                Edit
+              </button>
+              <button
                 onClick={(e) => { e.stopPropagation(); onApprove(item.id) }}
                 className="text-xs font-semibold text-white px-3 py-1 transition-opacity hover:opacity-80"
                 style={{ backgroundColor: '#0063FF' }}

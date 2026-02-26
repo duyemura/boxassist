@@ -257,11 +257,27 @@ function DashboardContent() {
     setRunning(false)
   }
 
+  const [sending, setSending] = useState(false)
+
   const handleMarkDone = async (actionId: string) => {
     setDismissedIds(prev => new Set([...prev, actionId]))
     setSelectedAction(null)
     if (isDemo) return
     try { await fetch('/api/autopilot/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actionId }) }) } catch {}
+  }
+
+  const handleApproveAndSend = async (actionId: string, editedMessage: string, subject: string) => {
+    setSending(true)
+    try {
+      await fetch('/api/autopilot/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId, editedMessage, editedSubject: subject }),
+      })
+      setDismissedIds(prev => new Set([...prev, actionId]))
+      setSelectedAction(null)
+    } catch {}
+    finally { setSending(false) }
   }
 
   const handleDismiss = async (actionId: string) => {
@@ -492,7 +508,8 @@ function DashboardContent() {
               isOpen={!!selectedAction}
               onClose={() => setSelectedAction(null)}
               onDismiss={handleDismiss}
-              onMarkDone={handleMarkDone}
+              onApproveAndSend={handleApproveAndSend}
+              sending={sending}
               onSendEmail={isDemo ? handleSendDemoEmail : undefined}
               sendingEmail={sendingEmail}
             />

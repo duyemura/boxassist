@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 // GET /api/skills — return system skills + this gym's custom skills
 export async function GET(req: NextRequest) {
@@ -12,12 +13,8 @@ export async function GET(req: NextRequest) {
   // Get the gym for this user
   let accountId: string | null = null
   if (!(session as any).isDemo) {
-    const { data: account } = await supabaseAdmin
-      .from('accounts')
-      .select('id')
-      .eq('user_id', session.id)
-      .single()
-    accountId = gym?.id ?? null
+    const account = await getAccountForUser(session.id)
+    accountId = (account?.id as string) ?? null
   }
 
   // Fetch system skills (gym_id IS NULL, is_system = true)
@@ -57,11 +54,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 

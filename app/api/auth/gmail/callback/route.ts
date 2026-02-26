@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { encrypt } from '@/lib/encrypt'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -42,11 +43,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Get gym for this user
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', userId)
-    .single()
+  const account = await getAccountForUser(userId)
 
   if (!account) {
     return NextResponse.redirect(new URL('/settings?error=no_gym', req.url))

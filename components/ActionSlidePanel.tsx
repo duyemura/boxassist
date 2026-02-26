@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,59 +31,61 @@ interface ActionSlidePanelProps {
   isOpen: boolean
   onClose: () => void
   onDismiss: (id: string) => void
-  onMarkDone: (id: string) => void
-  // Demo only — when provided, shows "Send this email" instead of "Mark Done"
+  onApproveAndSend: (id: string, editedMessage: string, subject: string) => void
+  sending?: boolean
+  // Demo only — when provided, shows "Send this email" instead of "Approve & Send"
   onSendEmail?: (id: string, message: string, subject: string) => void
   sendingEmail?: boolean
 }
 
 // ─── Insight badge helper ─────────────────────────────────────────────────────
+// Uses keyword matching on the type/playbook string — works with AI-assigned types.
+// No hardcoded enum switch — the AI can create any task type and it gets a sensible badge.
+
+const BADGE_RULES: Array<{
+  keywords: string[]
+  label: string
+  color: string
+  bg: string
+}> = [
+  { keywords: ['payment', 'billing', 'invoice'], label: 'Payment Issue', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
+  { keywords: ['churn', 'at_risk', 'at-risk', 'attendance_drop', 'disengag'], label: 'At Risk', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
+  { keywords: ['renewal', 'expir'], label: 'Renewal Risk', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+  { keywords: ['win_back', 'winback', 'cancel', 'lapsed', 'reactivat'], label: 'Win-Back', color: '#0063FF', bg: 'rgba(0,99,255,0.08)' },
+  { keywords: ['lead', 'prospect', 'trial', 'cold'], label: 'Lead', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+  { keywords: ['onboard', 'new_member', 'welcome'], label: 'Onboarding', color: '#22C55E', bg: 'rgba(34,197,94,0.08)' },
+  { keywords: ['no_show', 'noshow', 'missed'], label: 'No-Show', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+]
 
 function getInsightBadge(
   insightType?: string,
   playbookName?: string,
   riskLevel?: string,
+  priority?: string,
 ): { label: string; color: string; bg: string } {
-  switch (insightType) {
-    case 'churn_risk':
-      return { label: 'Churn Risk', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
-    case 'renewal_at_risk':
-      return { label: 'Renewal Risk', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
-    case 'payment_failed':
-      return { label: 'Payment Issue', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
-    case 'lead_going_cold':
-      return { label: 'Lead Going Cold', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
-    case 'win_back':
-      return { label: 'Win-Back', color: '#0063FF', bg: 'rgba(0,99,255,0.08)' }
-    default: {
-      if (playbookName) {
-        const p = playbookName.toLowerCase()
-        if (p.includes('churn') || p.includes('at-risk') || p.includes('at_risk')) {
-          return { label: 'Churn Risk', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
-        }
-        if (p.includes('renewal')) {
-          return { label: 'Renewal Risk', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
-        }
-        if (p.includes('payment')) {
-          return { label: 'Payment Issue', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
-        }
-        if (p.includes('win') || p.includes('lapsed')) {
-          return { label: 'Win-Back', color: '#0063FF', bg: 'rgba(0,99,255,0.08)' }
-        }
-        if (p.includes('lead')) {
-          return { label: 'Lead Going Cold', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
-        }
-        return { label: playbookName, color: '#6B7280', bg: 'rgba(107,114,128,0.08)' }
-      }
-      if (riskLevel === 'high') {
-        return { label: 'Churn Risk', color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
-      }
-      if (riskLevel === 'medium') {
-        return { label: 'Renewal Risk', color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
-      }
-      return { label: 'Insight', color: '#6B7280', bg: 'rgba(107,114,128,0.08)' }
+  // Combine all available text signals for keyword matching
+  const haystack = [insightType, playbookName].filter(Boolean).join(' ').toLowerCase()
+
+  for (const rule of BADGE_RULES) {
+    if (rule.keywords.some(kw => haystack.includes(kw))) {
+      return rule
     }
   }
+
+  // Fallback: use priority for color, format insightType as label
+  if (priority === 'critical' || riskLevel === 'high') {
+    const label = insightType ? insightType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Critical'
+    return { label, color: '#EF4444', bg: 'rgba(239,68,68,0.08)' }
+  }
+  if (priority === 'high' || riskLevel === 'medium') {
+    const label = insightType ? insightType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Needs Attention'
+    return { label, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' }
+  }
+  if (insightType) {
+    const label = insightType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    return { label, color: '#6B7280', bg: 'rgba(107,114,128,0.08)' }
+  }
+  return { label: 'Insight', color: '#6B7280', bg: 'rgba(107,114,128,0.08)' }
 }
 
 // ─── Copy button ──────────────────────────────────────────────────────────────
@@ -117,18 +119,32 @@ function CopyButton({ text }: { text: string }) {
 export default function ActionSlidePanel({
   action,
   onDismiss,
-  onMarkDone,
+  onApproveAndSend,
+  sending = false,
   onSendEmail,
   sendingEmail = false,
 }: ActionSlidePanelProps) {
+  const originalDraft = action?.content?.draftMessage ?? action?.content?.draftedMessage ?? ''
+  const [editedMessage, setEditedMessage] = useState(originalDraft)
+  const [editedSubject, setEditedSubject] = useState(action?.content?.messageSubject ?? '')
+  const isEdited = editedMessage !== originalDraft
+
+  // Reset edited state when a different action is selected
+  const actionId = action?.id
+  useEffect(() => {
+    if (actionId) {
+      setEditedMessage(action?.content?.draftMessage ?? action?.content?.draftedMessage ?? '')
+      setEditedSubject(action?.content?.messageSubject ?? '')
+    }
+  }, [actionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!action) return null
 
   const c = action.content
 
   // Field name fallbacks: support both old and new field names
   const detail = c.detail ?? c.insights ?? c.riskReason ?? ''
-  const draftMessage = c.draftMessage ?? c.draftedMessage ?? ''
-  const badge = getInsightBadge(c.insightType, c.playbookName, c.riskLevel)
+  const badge = getInsightBadge(c.insightType, c.playbookName, c.riskLevel, c.priority)
 
   return (
     <div className="flex flex-col h-full">
@@ -184,28 +200,51 @@ export default function ActionSlidePanel({
         {/* Divider */}
         <div className="border-t border-gray-100" />
 
-        {/* Suggested message */}
-        {draftMessage && (
+        {/* Message — editable */}
+        {originalDraft && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">
-                Suggested message
+                {isEdited ? 'Message (edited)' : 'Suggested message'}
               </p>
-              <CopyButton text={draftMessage} />
+              <div className="flex items-center gap-2">
+                {isEdited && (
+                  <button
+                    onClick={() => setEditedMessage(originalDraft)}
+                    className="text-[10px] font-semibold px-2 py-1 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+                <CopyButton text={editedMessage} />
+              </div>
             </div>
+
+            {/* Subject line */}
+            <div className="mb-2">
+              <label className="text-[10px] text-gray-400 mb-0.5 block">Subject</label>
+              <input
+                type="text"
+                value={editedSubject}
+                onChange={(e) => setEditedSubject(e.target.value)}
+                className="w-full text-xs text-gray-700 px-3 py-2 focus:outline-none focus:border-blue-400"
+                style={{ border: '1px solid #E5E7EB', backgroundColor: '#F9FAFB' }}
+              />
+            </div>
+
+            {/* Message body */}
             <textarea
-              readOnly
-              value={draftMessage}
+              value={editedMessage}
+              onChange={(e) => setEditedMessage(e.target.value)}
               rows={7}
-              className="w-full text-xs text-gray-700 p-3 resize-none focus:outline-none font-mono leading-relaxed"
+              className="w-full text-xs text-gray-700 p-3 resize-none focus:outline-none focus:border-blue-400 font-mono leading-relaxed"
               style={{
-                backgroundColor: '#F9FAFB',
-                border: '1px solid #E5E7EB',
-                cursor: 'default',
+                backgroundColor: isEdited ? '#FFFFF0' : '#F9FAFB',
+                border: `1px solid ${isEdited ? '#D1D5DB' : '#E5E7EB'}`,
               }}
             />
             <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
-              Edit and send this yourself — your words, your relationship
+              Edit the message before sending — your words, your relationship
             </p>
           </div>
         )}
@@ -234,7 +273,7 @@ export default function ActionSlidePanel({
         </button>
         {onSendEmail ? (
           <button
-            onClick={() => onSendEmail(action.id, draftMessage, c.messageSubject || 'Checking in on you')}
+            onClick={() => onSendEmail(action.id, editedMessage, editedSubject || 'Checking in on you')}
             disabled={sendingEmail}
             className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85 disabled:opacity-50 flex items-center gap-1.5"
             style={{ backgroundColor: '#0063FF' }}
@@ -250,11 +289,19 @@ export default function ActionSlidePanel({
           </button>
         ) : (
           <button
-            onClick={() => onMarkDone(action.id)}
-            className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85"
-            style={{ backgroundColor: '#22C55E' }}
+            onClick={() => onApproveAndSend(action.id, editedMessage, editedSubject || c.messageSubject || 'Checking in')}
+            disabled={sending}
+            className="text-xs font-semibold text-white px-5 py-2 transition-opacity hover:opacity-85 disabled:opacity-50 flex items-center gap-1.5"
+            style={{ backgroundColor: '#0063FF' }}
           >
-            Mark Done
+            {sending ? (
+              <>
+                <span className="w-2.5 h-2.5 border border-white border-t-transparent animate-spin" />
+                Sending…
+              </>
+            ) : (
+              <>Approve &amp; Send →</>
+            )}
           </button>
         )}
       </div>

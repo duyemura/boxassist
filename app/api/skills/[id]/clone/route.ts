@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 // POST /api/skills/[id]/clone — clone a system skill into this gym's library
 export async function POST(
@@ -14,11 +15,7 @@ export async function POST(
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
   // Get the gym
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 

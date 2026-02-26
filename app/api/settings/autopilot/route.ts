@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -17,11 +18,7 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('autopilot_enabled, autopilot_enabled_at, autopilot_level')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
@@ -30,9 +27,9 @@ export async function GET(req: NextRequest) {
   // Shadow mode: first 7 days after enabling smart or full_auto
   let shadowModeUntil: string | null = null
   let shadowModeActive = false
-  const level = gym.autopilot_level ?? 'draft_only'
-  if (gym.autopilot_enabled && gym.autopilot_enabled_at && level !== 'draft_only') {
-    const enabledAt = new Date(gym.autopilot_enabled_at)
+  const level = (account.autopilot_level as string | null) ?? 'draft_only'
+  if (account.autopilot_enabled && account.autopilot_enabled_at && level !== 'draft_only') {
+    const enabledAt = new Date(account.autopilot_enabled_at as string)
     const shadowEnd = new Date(enabledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
     if (shadowEnd > new Date()) {
       shadowModeUntil = shadowEnd.toISOString()
@@ -41,7 +38,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    autopilotEnabled: gym.autopilot_enabled ?? false,
+    autopilotEnabled: (account.autopilot_enabled as boolean) ?? false,
     autopilotLevel: level,
     shadowModeUntil,
     shadowModeActive,
@@ -63,11 +60,7 @@ export async function POST(req: NextRequest) {
   const level = body.level as string | undefined
   const enabled = body.enabled as boolean | undefined
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id, autopilot_enabled, autopilot_level, autopilot_enabled_at')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
@@ -82,7 +75,7 @@ export async function POST(req: NextRequest) {
     updates.autopilot_enabled = level !== 'draft_only'
 
     // Reset shadow mode timer when upgrading to smart/full_auto
-    if (level !== 'draft_only' && (!gym.autopilot_enabled || account.autopilot_level === 'draft_only')) {
+    if (level !== 'draft_only' && (!account.autopilot_enabled || account.autopilot_level === 'draft_only')) {
       updates.autopilot_enabled_at = new Date().toISOString()
     }
   }
@@ -90,7 +83,7 @@ export async function POST(req: NextRequest) {
   // Handle simple toggle (backwards compat)
   if (typeof enabled === 'boolean' && !level) {
     updates.autopilot_enabled = enabled
-    if (enabled && !gym.autopilot_enabled) {
+    if (enabled && !account.autopilot_enabled) {
       updates.autopilot_enabled_at = new Date().toISOString()
     }
     if (!enabled) {
@@ -107,7 +100,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    autopilotEnabled: (updates.autopilot_enabled ?? gym.autopilot_enabled) as boolean,
-    autopilotLevel: (updates.autopilot_level ?? gym.autopilot_level ?? 'draft_only') as string,
+    autopilotEnabled: (updates.autopilot_enabled ?? account.autopilot_enabled) as boolean,
+    autopilotLevel: (updates.autopilot_level ?? account.autopilot_level ?? 'draft_only') as string,
   })
 }

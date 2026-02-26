@@ -263,10 +263,10 @@ export async function createInsightTask(params: {
     .eq('id', params.accountId)
     .single()
 
-  const autopilotLevel = (gym?.autopilot_level ?? 'draft_only') as string
+  const autopilotLevel = (account?.autopilot_level ?? 'draft_only') as string
   const isEscalation = params.insight.priority === 'critical' || params.insight.type === 'payment_failed'
 
-  if (gym?.autopilot_enabled && autopilotLevel !== 'draft_only') {
+  if (account?.autopilot_enabled && autopilotLevel !== 'draft_only') {
     // Escalations always require approval, regardless of level
     if (!isEscalation) {
       // Determine if this task type qualifies for auto-send at this level
@@ -283,7 +283,7 @@ export async function createInsightTask(params: {
 
       if (qualifies) {
         // Check shadow mode: first 7 days after enabling
-        const enabledAt = gym.autopilot_enabled_at ? new Date(gym.autopilot_enabled_at) : new Date()
+        const enabledAt = account?.autopilot_enabled_at ? new Date(account.autopilot_enabled_at as string) : new Date()
         const shadowEnd = new Date(enabledAt.getTime() + 7 * 24 * 60 * 60 * 1000)
         const inShadowMode = shadowEnd > new Date()
 

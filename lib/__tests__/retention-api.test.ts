@@ -27,7 +27,7 @@ function makeChain(resolvedData: { data: any; error: any; count?: number }) {
   const methods = [
     'select', 'insert', 'update', 'delete', 'upsert',
     'eq', 'neq', 'is', 'not', 'or', 'in', 'gte', 'lt', 'lte',
-    'single', 'limit', 'order', 'filter',
+    'single', 'maybeSingle', 'limit', 'order', 'filter',
   ]
   methods.forEach(m => { obj[m] = vi.fn().mockReturnValue(obj) })
   obj.then = (resolve: any) => resolve(resolvedData)
@@ -94,7 +94,7 @@ describe('GET /api/retention/scorecard', () => {
 
   it('returns real scorecard for authenticated gym owner', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.accounts = { data: { id: 'gym-abc' }, error: null }
+    fromResponses.team_members = { data: { accounts: { id: 'gym-abc' } }, error: null }
 
     const res = await handler(makeRequest('/api/retention/scorecard'))
     const body = await res.json()
@@ -106,7 +106,7 @@ describe('GET /api/retention/scorecard', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.accounts = { data: null, error: null }
+    // team_members defaults to null data — no account found
 
     const res = await handler(makeRequest('/api/retention/scorecard'))
     expect(res.status).toBe(400)
@@ -146,7 +146,7 @@ describe('GET /api/retention/activity', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.accounts = { data: null, error: null }
+    // team_members defaults to null data — no account found
 
     const res = await handler(makeRequest('/api/retention/activity'))
     expect(res.status).toBe(400)
@@ -186,7 +186,7 @@ describe('GET /api/retention/members', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.accounts = { data: null, error: null }
+    // team_members defaults to null data — no account found
 
     const res = await handler(makeRequest('/api/retention/members'))
     expect(res.status).toBe(400)

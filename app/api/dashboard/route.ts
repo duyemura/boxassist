@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession, getTier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -114,17 +115,13 @@ export async function GET(req: NextRequest) {
     .eq('id', session.id)
     .single()
   
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('*')
-    .eq('user_id', session.id)
-    .single()
-  
+  const account = await getAccountForUser(session.id)
+
   const tier = getTier(user)
-  
+
   // Get autopilots (v2: includes trigger fields)
   let autopilots: any[] = []
-  if (gym) {
+  if (account) {
     const { data } = await supabaseAdmin
       .from('autopilots')
       .select('*')
@@ -135,7 +132,7 @@ export async function GET(req: NextRequest) {
   
   // Get recent runs
   let recentRuns: any[] = []
-  if (gym) {
+  if (account) {
     const { data } = await supabaseAdmin
       .from('agent_runs')
       .select('*')
@@ -147,7 +144,7 @@ export async function GET(req: NextRequest) {
   
   // Get pending actions from agent_tasks
   let pendingActions: any[] = []
-  if (gym) {
+  if (account) {
     const { data: tasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
@@ -216,7 +213,7 @@ export async function GET(req: NextRequest) {
   startOfMonth.setHours(0, 0, 0, 0)
   
   let monthlyRunCount = 0
-  if (gym) {
+  if (account) {
     const { count } = await supabaseAdmin
       .from('agent_runs')
       .select('*', { count: 'exact', head: true })
@@ -227,7 +224,7 @@ export async function GET(req: NextRequest) {
 
   // Get recent webhook events (last 10)
   let recentEvents: any[] = []
-  if (gym) {
+  if (account) {
     const { data } = await supabaseAdmin
       .from('webhook_events')
       .select('id, event_type, created_at, agent_runs_triggered, processed_at')
@@ -239,7 +236,7 @@ export async function GET(req: NextRequest) {
   
   return NextResponse.json({
     user,
-    gym,
+    account,
     tier,
     autopilots,
     recentRuns,

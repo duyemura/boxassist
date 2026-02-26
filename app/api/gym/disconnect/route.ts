@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 import { decrypt } from '@/lib/encrypt'
 import { deregisterGymAgentsWebhook } from '@/lib/pushpress-sdk'
 
@@ -10,22 +11,18 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id, webhook_id, pushpress_api_key, pushpress_company_id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
-  if (gym) {
+  if (account) {
     // Deactivate the PushPress webhook if we registered one
-    if (gym.webhook_id && gym.pushpress_api_key && gym.pushpress_company_id) {
+    if (account.webhook_id && account.pushpress_api_key && account.pushpress_company_id) {
       try {
-        const apiKey = decrypt(gym.pushpress_api_key)
+        const apiKey = decrypt(account.pushpress_api_key as string)
         await deregisterGymAgentsWebhook(
-          { apiKey, companyId: gym.pushpress_company_id },
-          gym.webhook_id
+          { apiKey, companyId: account.pushpress_company_id as string },
+          account.webhook_id as string
         )
-        console.log(`[disconnect] Deactivated webhook ${gym.webhook_id}`)
+        console.log(`[disconnect] Deactivated webhook ${account.webhook_id}`)
       } catch (err: any) {
         console.warn('[disconnect] Failed to deactivate webhook:', err.message)
       }

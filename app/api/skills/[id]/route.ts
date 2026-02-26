@@ -3,16 +3,13 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
-// Helper: get gym for current session
+// Helper: get account id for current session
 async function getGymId(session: any): Promise<string | null> {
   if ((session as any).isDemo) return null
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
-  return gym?.id ?? null
+  const account = await getAccountForUser(session.id)
+  return (account?.id as string) ?? null
 }
 
 // GET /api/skills/[id] — fetch a single skill

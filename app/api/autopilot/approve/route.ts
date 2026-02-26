@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const { actionId } = await req.json()
+    const { actionId, editedMessage, editedSubject } = await req.json()
 
     const { data: user } = await supabaseAdmin
       .from('users')
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     // Mark as approved
     await updateTaskStatus(actionId, 'awaiting_reply', {
-      outcomeReason: 'Approved by owner',
+      outcomeReason: editedMessage ? 'Approved by owner (edited)' : 'Approved by owner',
     })
     await supabaseAdmin
       .from('agent_tasks')
@@ -55,11 +55,11 @@ export async function POST(req: NextRequest) {
       })
       .eq('id', actionId)
 
-    // Send the email
+    // Use edited message if provided, otherwise fall back to original draft
     const ctx = (task.context ?? {}) as Record<string, unknown>
     const memberEmail = task.member_email ?? (ctx.memberEmail as string)
-    const draftMessage = (ctx.draftMessage as string) ?? ''
-    const messageSubject = (ctx.messageSubject as string) ?? 'Checking in from the gym'
+    const draftMessage = editedMessage || (ctx.draftMessage as string) || ''
+    const messageSubject = editedSubject || (ctx.messageSubject as string) || 'Checking in'
     const accountId = task.gym_id
 
     if (memberEmail && draftMessage && accountId) {

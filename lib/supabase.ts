@@ -61,7 +61,6 @@ export type Database = {
       accounts: {
         Row: {
           id: string
-          user_id: string
           pushpress_api_key: string
           pushpress_company_id: string
           account_name: string

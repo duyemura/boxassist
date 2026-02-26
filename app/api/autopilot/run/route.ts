@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { getSession, getTier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 import { createPushPressClient, getAtRiskMembers } from '@/lib/pushpress'
 import { runAtRiskDetector } from '@/lib/claude'
 import { decrypt } from '@/lib/encrypt'
@@ -112,8 +113,7 @@ export async function POST(req: NextRequest) {
         const { data: user } = await supabaseAdmin
           .from('users').select('*').eq('id', session.id).single()
 
-        const { data: account } = await supabaseAdmin
-          .from('accounts').select('*').eq('user_id', session.id).single()
+        const account = await getAccountForUser(session.id)
 
         if (!account) {
           emit({ type: 'error', message: 'No gym connected' })

@@ -19,17 +19,19 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Get all gyms with connected owners
-  const { data: accounts } = await supabaseAdmin
-    .from('accounts')
-    .select('id, gym_name, user_id, users(email)')
-    .not('pushpress_api_key', 'is', null)
+  // Get all accounts with connected owners via team_members
+  const { data: members } = await supabaseAdmin
+    .from('team_members')
+    .select('user_id, accounts!inner(id, account_name, pushpress_api_key), users(email)')
+    .eq('role', 'owner')
+    .not('accounts.pushpress_api_key', 'is', null)
 
   let sent = 0
 
-  for (const account of accounts ?? []) {
-    const ownerEmail = (gym as any).users?.email
-    if (!ownerEmail) continue
+  for (const member of members ?? []) {
+    const account = (member as any).accounts
+    const ownerEmail = (member as any).users?.email
+    if (!ownerEmail || !account) continue
 
     try {
       // Get today's pending tasks
@@ -64,7 +66,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         html: `<div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 40px 20px; color: #333;">
           <div style="border-bottom: 2px solid #0063FF; padding-bottom: 16px; margin-bottom: 24px;">
             <span style="font-weight: 700; font-size: 14px;">GymAgents</span>
-            <span style="color: #9CA3AF;"> &middot; ${gym.account_name ?? 'Your Gym'}</span>
+            <span style="color: #9CA3AF;"> &middot; ${account.account_name ?? 'Your Gym'}</span>
           </div>
 
           <h2 style="font-size: 18px; font-weight: 600; margin: 0 0 8px; color: #080808;">

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountMemories, createMemory } from '@/lib/db/memories'
+import { getAccountForUser } from '@/lib/db/accounts'
 import type { MemoryCategory } from '@/lib/db/memories'
 
 const VALID_CATEGORIES: MemoryCategory[] = ['preference', 'member_fact', 'gym_context', 'learned_pattern']
@@ -19,11 +20,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ memories: [] })
   }
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
@@ -51,11 +48,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
   }
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
@@ -103,11 +96,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
   }
 
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
   if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })

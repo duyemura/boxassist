@@ -43,14 +43,11 @@ export async function getUserWithGym(userId: string) {
     .select('*')
     .eq('id', userId)
     .single()
-  
-  const { data: account } = await supabaseAdmin
-    .from('accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-  
-  return { user, gym }
+
+  const { getAccountForUser } = await import('./db/accounts')
+  const account = await getAccountForUser(userId)
+
+  return { user, account }
 }
 
 export function isSubscribed(user: any): boolean {

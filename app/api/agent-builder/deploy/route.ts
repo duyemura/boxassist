@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import type { ParsedAgentConfig } from '../parse/route'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -20,11 +21,7 @@ export async function POST(req: NextRequest) {
 
     if (!isDemo) {
       // Get gym for this user
-      const { data: account } = await supabaseAdmin
-        .from('accounts')
-        .select('id')
-        .eq('user_id', session.id)
-        .single()
+      const account = await getAccountForUser(session.id)
 
       if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
       accountId = account.id

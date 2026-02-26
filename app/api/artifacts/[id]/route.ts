@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic'
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
 import { getArtifact, getArtifactByShareToken } from '@/lib/artifacts/db'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(
   req: NextRequest,
@@ -40,13 +40,9 @@ export async function GET(
     }
 
     // Verify gym ownership
-    const { data: account } = await supabaseAdmin
-      .from('accounts')
-      .select('id')
-      .eq('user_id', session.id)
-      .single()
+    const account = await getAccountForUser(session.id)
 
-    if (!gym || account.id !== artifact.account_id) {
+    if (!account || account.id !== artifact.account_id) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
   }

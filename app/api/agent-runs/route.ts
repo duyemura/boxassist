@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,11 +79,7 @@ export async function GET(req: NextRequest) {
   const accountId = (session as any).accountId
   let resolvedGymId = accountId
   if (!resolvedGymId) {
-    const { data: account } = await supabaseAdmin
-      .from('accounts')
-      .select('id')
-      .eq('user_id', session.id)
-      .single()
+    const account = await getAccountForUser(session.id)
     if (!account) return NextResponse.json({ error: 'no gym' }, { status: 400 })
     resolvedGymId = account.id
   }
