@@ -180,7 +180,10 @@ describe('GET /api/retention/members', () => {
     expect(res.status).toBe(200)
     expect(Array.isArray(body)).toBe(true)
     expect(body.length).toBe(5)
-    expect(body[0]).toHaveProperty('riskLevel')
+    // Abstract shape — priority/taskType/title instead of hardcoded riskLevel/lastCheckin
+    expect(body[0]).toHaveProperty('priority')
+    expect(body[0]).toHaveProperty('taskType')
+    expect(body[0]).toHaveProperty('title')
     expect(body[0]).toHaveProperty('name')
   })
 

@@ -548,74 +548,136 @@ Freeform `business_type_tag` values are what make this scale beyond "50 gyms all
 
 ## Implementation Roadmap
 
-### Phase 1 — Signal Collection (2 weeks)
+Phases are numbered SI-1 through SI-7 (Self-Improvement) to distinguish from the main product plan phases.
+
+### SI-1 — Signal Collection (foundation)
 _No visible changes to owners. Start building the data needed to learn._
 
-- [ ] `interaction_outcomes` table — populate on every task close (AI-authored context summary)
-- [ ] Capture owner edit diffs on manual approval — run through Claude for `edit_summary`
-- [ ] `memories` table (schema only — not yet populated automatically); `accounts.business_type_tag` column
-- [ ] Log dismissals with optional owner annotation
+- [ ] `interaction_outcomes` table + migration
+- [ ] Populate on every task close: AI-authored context summary, touch number, message length, send hour
+- [ ] Capture owner edit diffs on manual approval — run through Claude (Haiku) for `edit_summary`
+- [ ] `memories` table + migration; `accounts.business_type_tag` column
+- [ ] Log dismissals with optional owner annotation (currently we dismiss but don't record why)
 - [ ] Ensure task outcomes are reliably attributed before learning from them
 
-### Phase 2 — Business Memory (2 weeks)
-_Owners can teach the system about their business. Immediate value, no evaluator required._
+**Depends on:** Attribution cron (done). Autopilot approve API (done).
+**Files:** `lib/migrations/0XX_self_improving_tables.sql`, `lib/db/interaction-outcomes.ts`, modify `app/api/autopilot/approve/route.ts`
 
-- [ ] Memory injection into agent context (`buildAgentContext()`) — reads `memories` WHERE scope IN ('account', 'system')
+### SI-2 — Business Memory (immediate owner value)
+_Owners can teach the system about their business. No evaluator required._
+
+- [ ] Memory injection into agent context — reads `memories` WHERE scope IN ('account', 'system') + member-scoped
 - [ ] GM Chat: "remember that my members prefer..." → creates memory immediately (scope='account')
-- [ ] Bootstrap call on gym connect: write `business_profile` memory (scope='account', category_hint='business_profile')
-- [ ] Settings UI: view / edit / delete active memories
-- [ ] Memory active confirmation: task context shows "using 3 business memories"
+- [ ] Bootstrap LLM call on account connect: write `business_profile` memory + infer `business_type_tag`
+- [ ] Settings UI: view / edit / delete active memories (with source badge: "You" vs "Agent")
+- [ ] Memory active confirmation: task context shows "using N business memories"
 - [ ] Memory expiry for time-sensitive facts
+- [ ] Privacy enforcement: all account/member memories have `privacy_tier: 'account_private'`
 
-### Phase 3 — Post-Task Evaluator (3 weeks)
+**Depends on:** SI-1 (memories table). Partially done — existing `gym_memories` table and `getMemoriesForPrompt()` in `lib/db/memories.ts` need migration to the unified `memories` table.
+**Files:** `lib/db/memories.ts` (rewrite to unified table), `components/SettingsPanel.tsx` (memory UI)
+
+### SI-3 — Post-Task Evaluator (the engine)
 _System generates its first automatic suggestions from completed interactions._
 
-- [ ] `improvement_suggestions` table
-- [ ] Post-task evaluator (async, runs on `TaskCompleted` event)
-- [ ] Domain-agnostic evaluator prompt (see above)
-- [ ] Confidence scoring and evidence packaging
-- [ ] Weekly batch evaluator (Sunday night cron)
-- [ ] Badge count in nav: "Improvements (3)"
+- [ ] `improvement_suggestions` table + migration
+- [ ] `evaluation_rubrics` table + migration
+- [ ] Post-task evaluator: `lib/eval/post-task-evaluator.ts`
+  - Triggered async when task status → `resolved` or `cancelled`
+  - Receives: full interaction record, conversation history, memories, outcome
+  - Returns: 0–3 suggestions typed as memory / skill / rubric / prompt / calibration
+  - Uses Haiku for routine evaluations, Sonnet for high-signal (unexpected outcome, owner edit, escalation)
+- [ ] Evaluator prompt using the 5 output types (see System Prompt above)
+- [ ] Weekly batch evaluator cron: `app/api/cron/evaluate-week/route.ts` (Sunday night)
+  - Analyzes past 7 days per account as a group
+  - Looks for patterns not visible in individual interactions
+- [ ] Wire into task lifecycle: `updateTaskStatus()` → fire evaluator async (non-blocking)
 
-### Phase 4 — Owner Review UI (2 weeks)
-_Owner can review, accept, and apply suggestions. Closes the loop._
+**Depends on:** SI-1 (interaction_outcomes provides the data). SI-2 (memories are one of the output types).
+**Files:** `lib/eval/post-task-evaluator.ts`, `lib/eval/prompts.ts`, `app/api/cron/evaluate-week/route.ts`, modify `lib/db/tasks.ts`
+
+### SI-4 — Owner Review UI (closing the loop)
+_Owner can review, accept, and apply suggestions. The agent earns trust._
 
 - [ ] `/dashboard/improvements` page
-- [ ] Suggestion cards with expandable evidence
-- [ ] Accept / Dismiss / Remind me later
-- [ ] Accepted memories immediately active in next agent run
-- [ ] Applied prompt updates staged for A/B testing (Phase 5)
+- [ ] Suggestion cards with type-specific rendering and actions:
+  - Memory: content preview, evidence summary → Dismiss / Save
+  - Skill: applies_when, guidance preview, sources → Dismiss / Quick / Build
+  - Rubric: criteria list, applies_to → Dismiss / Accept
+  - Prompt: instruction text, target skill → Dismiss / Apply
+  - Calibration: current vs suggested behavior, evidence → Dismiss / Confirm / Remind me later
+- [ ] Filter by type (Memory, Skill, Rubric, Prompt, Calibration) and status (Pending, Applied, Dismissed)
+- [ ] Confidence badge per card: Strong (green) / Moderate (amber) / Weak (gray)
+- [ ] Evidence expandable section with outcome stats
+- [ ] Badge count in nav: "Improvements (3)"
+- [ ] Apply mechanics:
+  - Accepted memories → created in `memories` table, immediately active
+  - Applied prompts → stored as per-account skill override in `skills` table
+  - Accepted rubrics → created in `evaluation_rubrics` table, active for future evaluations
+  - Built skills → new skill file generated and stored in `skills` table
 
-### Phase 5 — Prompt A/B Testing (4 weeks)
+**Depends on:** SI-3 (evaluator produces the suggestions).
+**Files:** `app/dashboard/improvements/page.tsx`, `app/api/improvements/route.ts`, `app/api/improvements/[id]/route.ts`
+
+### SI-5 — Trust Gradient + Auto-Apply
+_Proven improvements apply automatically. Owner stays informed._
+
+- [ ] Account-level setting: `improvement_auto_apply_level` ('review_all' | 'auto_save_memories' | 'auto_apply_proven')
+- [ ] Auto-apply logic in evaluator: check confidence + evidence_strength + account trust level
+- [ ] For 'auto_apply_proven': also check if 3+ similar accounts already accepted the same pattern
+- [ ] Weekly digest email via Resend: "Your agent learned N things this week" with one-click undo per item
+- [ ] Auto-applied suggestions get `status: 'auto_applied'` — visible in improvements UI with undo
+- [ ] Effectiveness tracking: compare outcomes before vs after a suggestion is applied
+
+**Depends on:** SI-4 (review UI must exist before auto-apply makes sense).
+**Files:** modify `lib/eval/post-task-evaluator.ts`, `app/api/cron/weekly-digest/route.ts`, modify settings UI
+
+### SI-6 — Cross-Business Learning (the flywheel)
+_Every business benefits from all businesses._
+
+- [ ] Monthly cross-business cron: `app/api/cron/cross-business-eval/route.ts`
+  - Reads `interaction_outcomes` across accounts (anonymized fields only — see privacy boundary)
+  - Groups by `business_type_tag`
+  - Generates suggestions with `privacy_tier: 'business_type_shared'` or `'system_wide'`
+- [ ] Route suggestions to relevant accounts based on `business_type_tag` match
+- [ ] "Learning Network" opt-in toggle in settings (Pro/Agency tier default on)
+- [ ] Contribution transparency: "Your data contributed to N cross-business patterns this month"
+- [ ] Minimum thresholds enforced: 3+ accounts for type-shared, 5+ across 2+ types for system-wide
+- [ ] Cross-business memories stored with `scope: 'business_type'` or `scope: 'system'`
+
+**Depends on:** SI-5 (trust gradient), business_type_tag populated on accounts (SI-2 bootstrap).
+**Files:** `app/api/cron/cross-business-eval/route.ts`, modify `lib/db/memories.ts` (read system/type-scoped memories)
+
+### SI-7 — Prompt A/B Testing (validation)
 _Validate prompt improvements before fully applying them._
 
 - [ ] Variant routing: similar interactions split between current and proposed prompt
-- [ ] Outcome tracking per variant
-- [ ] Automatic promotion when variant outperforms at 80%+ confidence
+- [ ] Outcome tracking per variant (stored in `interaction_outcomes`)
+- [ ] Automatic promotion when variant outperforms at 80%+ confidence after 20+ samples
 - [ ] Automatic retirement when variant underperforms
 - [ ] Test results visible in improvements dashboard
+- [ ] "A/B test this change" option when applying a prompt suggestion in SI-4 UI
 
-### Phase 6 — Cross-Business Learning (4 weeks)
-_Every business benefits from all businesses. The flywheel becomes real._
+**Depends on:** SI-4 (review UI), enough interaction volume for meaningful splits.
 
-- [ ] Anonymized signal aggregation pipeline (monthly)
-- [ ] Cross-business pattern detection (3+ business minimum)
-- [ ] Suggestions routed to relevant businesses with source context
-- [ ] "Learning Network" opt-in (Pro/Agency tier default on)
-- [ ] Contribution transparency: "Your data contributed to 3 cross-business patterns"
+### Sequencing
 
-### Phase 7 — Loosening the Domain Model (ongoing)
-_Replace hardcoded gym logic with AI reasoning guided by context._
-
-Sequenced refactors, in order of impact:
-
-1. **Risk scoring** — replace `scoreChurnRisk()` heuristics with AI analysis given member data + business context. Keep scoring as a fallback until AI is proven more accurate.
-2. **Task types** — make `task_type` a hint the AI writes, not a category that drives behavior. Tasks become goal-driven objects.
-3. **Analysis loop** — replace the 5 hardcoded insight formulas in `analyzeGym()` with a single AI call: "here's all the data for this business — what needs attention and why?"
-4. **Entity abstraction** — introduce `BusinessEntity` and `EngagementEvent` as the core types; `PPCustomer` and `PPCheckin` become one implementation of these.
-5. **Event handling** — replace `_handleStatusChanged()` specific handlers with an AI evaluator: "this event happened — does it require action?"
-
-Each phase is independently deployable and testable. None requires tearing out the existing system — they're incremental replacements with the old code as fallback.
+```
+SI-1 (signal collection) ─── do first, foundation for everything
+  │
+SI-2 (business memory) ──── can start in parallel with SI-1
+  │                         partially done (existing gym_memories)
+  │
+SI-3 (post-task evaluator) ── after SI-1 + SI-2
+  │
+SI-4 (owner review UI) ───── after SI-3
+  │
+  ├── SI-5 (trust gradient) ── after SI-4
+  │     │
+  │     └── SI-6 (cross-business) ── after SI-5
+  │
+  └── SI-7 (A/B testing) ──── after SI-4, needs interaction volume
+```
 
 ---
 
