@@ -11,6 +11,7 @@ import MemoriesPanel from '@/components/MemoriesPanel'
 import GMChat from '@/components/GMChat'
 import RetentionScorecard from '@/components/RetentionScorecard'
 import ActivityFeed from '@/components/ActivityFeed'
+import AgentList from '@/components/AgentList'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ interface DashboardData {
   gym: any
   tier: string
   isDemo?: boolean
-  autopilots: any[]
+  agents: any[]
   recentRuns: any[]
   pendingActions: ActionCard[]
   monthlyRunCount: number
@@ -48,8 +49,14 @@ interface DashboardData {
 // ─── Demo seed ────────────────────────────────────────────────────────────────
 
 const DEMO_AGENTS = [
-  { id: 'demo-member-pulse', name: 'At-Risk Monitor', active: true, skill_type: 'at_risk_detector',
+  { id: 'demo-at-risk', name: 'At-Risk Member Detector', description: 'Spots members whose attendance is dropping before they cancel', is_active: true, skill_type: 'at_risk_detector', trigger_mode: 'cron', cron_schedule: 'daily',
     last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 47 },
+  { id: 'demo-payment', name: 'Payment Recovery', description: 'Catches failed payments and drafts a friendly recovery message', is_active: true, skill_type: 'payment_recovery', trigger_mode: 'cron', cron_schedule: 'daily',
+    last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 12 },
+  { id: 'demo-winback', name: 'Win-Back Outreach', description: 'Reaches out to members who cancel with a personal note', is_active: false, skill_type: 'win_back', trigger_mode: 'event', trigger_event: 'customer.status.changed',
+    last_run_at: undefined, run_count: 0 },
+  { id: 'demo-onboarding', name: 'New Member Welcome', description: 'Checks in on new members to make sure they are settling in', is_active: false, skill_type: 'new_member_onboarding', trigger_mode: 'cron', cron_schedule: 'daily',
+    last_run_at: undefined, run_count: 0 },
 ]
 
 // ─── Small components ─────────────────────────────────────────────────────────
@@ -139,7 +146,7 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'memories' | 'settings'>('gm')
+  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'settings'>('gm')
 
   // Welcome modal for demo — shows once per session
   const [showWelcome, setShowWelcome] = useState(false)
@@ -209,7 +216,7 @@ function DashboardContent() {
     setActiveSection('gm')
 
     try {
-      const response = await fetch('/api/autopilot/run', { method: 'POST' })
+      const response = await fetch('/api/agents/run', { method: 'POST' })
       if (!response.ok || !response.body) {
         const err = await response.json().catch(() => ({ error: 'Request failed' }))
         setAnalysisSteps([`Error: ${err.error ?? 'Unknown error'}`])
@@ -312,7 +319,7 @@ function DashboardContent() {
     )
   }
 
-  const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
+  const agentsList = isDemo ? DEMO_AGENTS : (data?.agents ?? [])
   const acct = data?.account ?? data?.gym
   const accountName = isDemo ? 'PushPress East' : (acct?.account_name ?? acct?.gym_name ?? acct?.name ?? 'Your Gym')
   const memberCount = acct?.member_count ?? acct?.memberCount ?? 0
@@ -320,8 +327,8 @@ function DashboardContent() {
   const autopilotLevel = acct?.autopilot_level ?? 'draft_only'
   const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
 
-  const atRiskAutopilot = autopilots.find((a: any) => a.skill_type === 'at_risk_detector')
-  const gmLastRunAt: string | undefined = atRiskAutopilot?.last_run_at ?? data?.recentRuns?.[0]?.created_at
+  const atRiskAgent = agentsList.find((a: any) => a.skill_type === 'at_risk_detector')
+  const gmLastRunAt: string | undefined = atRiskAgent?.last_run_at ?? data?.recentRuns?.[0]?.created_at
 
   // Build de-duped, non-dismissed action list
   const allActions: ActionCard[] = [
@@ -380,7 +387,25 @@ function DashboardContent() {
     <>
       {/* Mobile */}
       <div className="md:hidden h-full overflow-y-auto">
-        {activeSection === 'settings'
+        {activeSection === 'agents'
+          ? (
+            <div className="px-4 py-4">
+              <h1 className="text-lg font-semibold text-gray-900 mb-3">Agents</h1>
+              <AgentList
+                agents={agentsList}
+                isDemo={isDemo}
+                onToggle={(skillType, isActive) => {
+                  if (data) {
+                    const updated = (data.agents ?? []).map((a: any) =>
+                      a.skill_type === skillType ? { ...a, is_active: isActive } : a
+                    )
+                    setData({ ...data, agents: updated })
+                  }
+                }}
+              />
+            </div>
+          )
+          : activeSection === 'settings'
           ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
           : activeSection === 'memories'
           ? <MemoriesPanel />
@@ -395,7 +420,29 @@ function DashboardContent() {
 
       {/* Desktop */}
       <div className="hidden md:flex flex-col h-full overflow-hidden">
-        {activeSection === 'settings' ? (
+        {activeSection === 'agents' ? (
+          <div className="overflow-y-auto flex-1">
+            <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
+                <p className="text-xs text-gray-400 mt-0.5">Each agent watches for a specific situation and drafts a response.</p>
+              </div>
+            </div>
+            <AgentList
+              agents={agentsList}
+              isDemo={isDemo}
+              onToggle={(skillType, isActive) => {
+                // Optimistic update
+                if (data) {
+                  const updated = (data.agents ?? []).map((a: any) =>
+                    a.skill_type === skillType ? { ...a, is_active: isActive } : a
+                  )
+                  setData({ ...data, agents: updated })
+                }
+              }}
+            />
+          </div>
+        ) : activeSection === 'settings' ? (
           <div className="overflow-y-auto flex-1">
             <div className="px-6 pt-5 pb-3 border-b border-gray-100">
               <h1 className="text-lg font-semibold text-gray-900">Settings</h1>
@@ -508,7 +555,7 @@ function DashboardContent() {
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         activeSection={activeSection}
-        onSectionChange={(s) => setActiveSection(s as 'gm' | 'settings')}
+        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'settings')}
         slidePanel={
           selectedAction ? (
             <ActionSlidePanel

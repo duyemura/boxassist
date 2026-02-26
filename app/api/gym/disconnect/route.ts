@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await supabaseAdmin.from('autopilots').delete().eq('account_id', account.id)
+    await supabaseAdmin.from('agents').delete().eq('account_id', account.id)
     await supabaseAdmin.from('agent_runs').delete().eq('account_id', account.id)
     await supabaseAdmin.from('webhook_events').delete().eq('account_id', account.id)
     await supabaseAdmin.from('agent_subscriptions').delete().eq('account_id', account.id)

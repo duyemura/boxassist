@@ -10,7 +10,7 @@ interface Agent {
   skill_type?: string
 }
 
-type NavSection = 'gm' | 'memories' | 'settings'
+type NavSection = 'gm' | 'agents' | 'memories' | 'settings'
 
 interface AppShellProps {
   isDemo: boolean
@@ -42,14 +42,18 @@ type NavItem = { id: NavSection; label: string; icon: React.ReactNode; href?: st
 const NAV_AGENTS: NavItem[] = [
   {
     id: 'gm',
-    label: 'GM Agent',
+    label: 'Dashboard',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="6" height="6" stroke="currentColor" strokeWidth="1.5" opacity=".9"/><rect x="11" y="3" width="6" height="3" stroke="currentColor" strokeWidth="1.5" opacity=".6"/><rect x="11" y="8" width="6" height="6" stroke="currentColor" strokeWidth="1.5" opacity=".4"/><rect x="3" y="11" width="6" height="3" stroke="currentColor" strokeWidth="1.5" opacity=".6"/></svg>
+    ),
+  },
+  {
+    id: 'agents',
+    label: 'Agents',
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5" opacity=".9"/><path d="M3.5 17c0-3.59 2.91-6.5 6.5-6.5s6.5 2.91 6.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".4"/></svg>
     ),
   },
-  // Future agents appear here — each uses AgentPageLayout
-  // { id: 'sales', label: 'Sales Agent', icon: ... },
-  // { id: 'winback', label: 'Win-Back Agent', icon: ... },
 ]
 
 const NAV_BOTTOM: NavItem[] = [

@@ -27,12 +27,12 @@ export async function POST(req: NextRequest) {
       accountId = account.id
     }
 
-    // Create autopilot record
-    // For real gyms: skill_type must be unique per gym — dedupe with timestamp if collision
+    // Create agent record
+    // For real accounts: skill_type must be unique per account — dedupe with timestamp if collision
     let skillType = config.skill_type
     if (!isDemo && accountId) {
       const { data: existing } = await supabaseAdmin
-        .from('autopilots')
+        .from('agents')
         .select('id')
         .eq('account_id', accountId)
         .eq('skill_type', skillType)
@@ -70,15 +70,15 @@ export async function POST(req: NextRequest) {
       insertData.user_id = session.id
     }
 
-    const { data: autopilot, error: apError } = await supabaseAdmin
-      .from('autopilots')
+    const { data: agent, error: agentError } = await supabaseAdmin
+      .from('agents')
       .insert(insertData)
       .select('id')
       .single()
 
-    if (apError || !autopilot) {
-      console.error('Autopilot insert error:', apError)
-      return NextResponse.json({ error: 'Failed to create autopilot' }, { status: 500 })
+    if (agentError || !agent) {
+      console.error('Agent insert error:', agentError)
+      return NextResponse.json({ error: 'Failed to create agent' }, { status: 500 })
     }
 
     // If event-triggered and not demo, create agent_subscription record
@@ -92,20 +92,20 @@ export async function POST(req: NextRequest) {
         .from('agent_subscriptions')
         .insert({
           account_id: accountId,
-          autopilot_id: autopilot.id,
+          agent_id: agent.id,
           event_type: config.trigger_event,
           is_active: true
         })
 
       if (subError) {
         console.error('Subscription insert error:', subError)
-        // Non-fatal — autopilot was created, subscription failed
+        // Non-fatal — agent was created, subscription failed
       }
     }
 
     return NextResponse.json({
       success: true,
-      autopilot_id: autopilot.id,
+      agent_id: agent.id,
       name: config.name,
       trigger_mode: config.trigger_mode,
       trigger_event: config.trigger_event

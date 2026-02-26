@@ -18,15 +18,15 @@ export async function GET(req: NextRequest) {
 
     // Silently clean up expired demo agents (fire and forget)
     supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .delete()
       .lt('expires_at', new Date().toISOString())
       .not('demo_session_id', 'is', null)
       .then(() => {})
 
-    // Get this session's autopilots (non-expired)
-    const { data: autopilots } = await supabaseAdmin
-      .from('autopilots')
+    // Get this session's agents (non-expired)
+    const { data: agents } = await supabaseAdmin
+      .from('agents')
       .select('*')
       .eq('demo_session_id', sessionId)
       .gt('expires_at', new Date().toISOString())
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
         pushpress_company_id: process.env.PUSHPRESS_COMPANY_ID,
       },
       tier: 'pro',
-      autopilots: autopilots || [],
+      agents: agents || [],
       recentRuns: [],
       pendingActions,
       monthlyRunCount: 14,
@@ -119,15 +119,15 @@ export async function GET(req: NextRequest) {
 
   const tier = getTier(user)
 
-  // Get autopilots (v2: includes trigger fields)
-  let autopilots: any[] = []
+  // Get agents for this account
+  let agents: any[] = []
   if (account) {
     const { data } = await supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .select('*')
       .eq('account_id', account.id)
       .order('created_at', { ascending: true })
-    autopilots = data || []
+    agents = data || []
   }
   
   // Get recent runs
@@ -238,7 +238,7 @@ export async function GET(req: NextRequest) {
     user,
     account,
     tier,
-    autopilots,
+    agents,
     recentRuns,
     pendingActions,
     monthlyRunCount,

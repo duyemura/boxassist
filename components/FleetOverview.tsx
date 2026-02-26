@@ -7,7 +7,7 @@ interface DashboardData {
   gym?: any
   tier?: string
   isDemo?: boolean
-  autopilots?: any[]
+  agents?: any[]
   recentRuns?: any[]
   pendingActions?: any[]
   monthlyRunCount?: number

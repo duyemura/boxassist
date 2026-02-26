@@ -47,16 +47,17 @@ create table if not exists public.agent_actions (
   created_at timestamptz default now()
 );
 
--- Autopilots table (v2: includes trigger_mode, trigger_event, cron_schedule)
-create table if not exists public.autopilots (
+-- Agents table (owner-configured agents with skill, trigger, and prompt)
+create table if not exists public.agents (
   id uuid primary key default gen_random_uuid(),
-  account_id uuid references public.gyms(id) on delete cascade not null,
+  account_id uuid references public.accounts(id) on delete cascade,
   skill_type text not null,
   name text,
   description text,
+  goal text,                           -- owner's stated goal from setup wizard
   system_prompt text,
   trigger_config jsonb default '{}',
-  trigger_mode text default 'cron',   -- 'cron' | 'event' | 'both'
+  trigger_mode text default 'cron',   -- 'cron' | 'event' | 'both' | 'manual'
   trigger_event text,                  -- e.g. 'lead.created', 'member.cancelled'
   cron_schedule text default 'weekly', -- 'hourly' | 'daily' | 'weekly'
   action_type text default 'draft_message', -- 'draft_message' | 'send_alert' | 'create_report'
@@ -66,7 +67,7 @@ create table if not exists public.autopilots (
   run_count integer default 0,
   approval_rate integer default 0,
   created_at timestamptz default now(),
-  unique(gym_id, skill_type)
+  unique(account_id, skill_type)
 );
 
 -- Webhook events: raw events received from PushPress
@@ -80,15 +81,15 @@ create table if not exists public.webhook_events (
   created_at timestamptz default now()
 );
 
--- Agent subscriptions: which autopilot listens to which event
+-- Agent subscriptions: which agent listens to which event
 create table if not exists public.agent_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  account_id uuid references public.gyms(id) on delete cascade not null,
-  autopilot_id uuid references public.autopilots(id) on delete cascade not null,
+  account_id uuid references public.accounts(id) on delete cascade not null,
+  agent_id uuid references public.agents(id) on delete cascade not null,
   event_type text not null,            -- 'lead.created', 'member.cancelled', etc.
   is_active boolean default true,
   created_at timestamptz default now(),
-  unique(autopilot_id, event_type)
+  unique(agent_id, event_type)
 );
 
 -- Enable RLS
@@ -96,7 +97,7 @@ alter table public.users enable row level security;
 alter table public.gyms enable row level security;
 alter table public.agent_runs enable row level security;
 alter table public.agent_actions enable row level security;
-alter table public.autopilots enable row level security;
+alter table public.agents enable row level security;
 alter table public.webhook_events enable row level security;
 alter table public.agent_subscriptions enable row level security;
 

@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   
   await supabaseAdmin
-    .from('autopilots')
+    .from('agents')
     .update({ is_active: isActive })
     .eq('account_id', account.id)
     .eq('skill_type', skillType)

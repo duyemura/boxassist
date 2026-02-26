@@ -59,7 +59,7 @@ export async function GET() {
     },
     tier: 'pro',
     isDemo: true,
-    autopilots: [
+    agents: [
       {
         id: 'demo-ap-1',
         skill_type: 'at_risk_detector',

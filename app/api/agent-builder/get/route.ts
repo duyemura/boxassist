@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const isDemo = (session as any)?.isDemo
   const demoSessionId = (session as any)?.demoSessionId
 
-  let query = supabaseAdmin.from('autopilots').select('*').eq('id', id)
+  let query = supabaseAdmin.from('agents').select('*').eq('id', id)
 
   if (isDemo && demoSessionId) {
     // Scope demo fetch to this session only
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   if (error || !data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Map DB row back to AutopilotConfig shape
+  // Map DB row back to AgentConfig shape
   const config = {
     name: data.name,
     description: data.description || '',

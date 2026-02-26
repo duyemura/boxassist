@@ -45,6 +45,9 @@ const TASK_TYPE_TO_FILE: Record<string, string> = {
   no_show: 'staff-call-member.md',
   monthly_analysis: 'monthly-churn-analysis.md',
   ad_hoc: 'ad-hoc.md',
+  // Agent skill_type aliases (autopilot rows use these)
+  at_risk_detector: 'churn-risk.md',
+  payment_recovery: 'payment-recovery.md',
 }
 
 // ── File cache ───────────────────────────────────────────────────────────────
@@ -69,7 +72,7 @@ async function loadFile(filename: string): Promise<string> {
  * This is Layer 1 of every agent prompt — who the agent is and how it works.
  * Returns empty string gracefully if the file is missing.
  */
-async function loadBaseContext(): Promise<string> {
+export async function loadBaseContext(): Promise<string> {
   const cacheKey = '__base_context__'
   const cached = cache.get(cacheKey)
   if (cached !== undefined) return cached

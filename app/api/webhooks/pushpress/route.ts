@@ -161,7 +161,7 @@ async function processWebhookAsync(rawBody: string) {
   // Find active agent subscriptions for this event type
   const { data: subs, error: subsErr } = await supabaseAdmin
     .from('agent_subscriptions')
-    .select('id, autopilot_id, autopilots(*)')
+    .select('id, agent_id, agents(*)')
     .eq('account_id', account.id)
     .eq('event_type', eventType)
     .eq('is_active', true)
@@ -173,14 +173,14 @@ async function processWebhookAsync(rawBody: string) {
   // eventData already extracted above for companyId; reuse it for agent runs
 
   for (const sub of subs ?? []) {
-    const autopilot = (sub as any).autopilots
-    if (!autopilot?.is_active) continue
+    const agent = (sub as any).agents
+    if (!agent?.is_active) continue
 
     try {
-      await runSubscribedAgent(gymWithKey, autopilot, eventType, eventData)
+      await runSubscribedAgent(gymWithKey, agent, eventType, eventData)
       runsTriggered++
     } catch (err) {
-      console.error(`[webhook] agent ${autopilot.id} failed:`, err)
+      console.error(`[webhook] agent ${agent.id} failed:`, err)
     }
   }
 
@@ -267,7 +267,7 @@ async function processWebhookAsync(rawBody: string) {
 
 async function runSubscribedAgent(
   gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string },
-  autopilot: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
+  agent: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
   eventType: string,
   eventData: Record<string, unknown>
 ) {
@@ -276,7 +276,7 @@ async function runSubscribedAgent(
     .from('agent_runs')
     .insert({
       account_id: account.id,
-      agent_type: autopilot.skill_type,
+      agent_type: agent.skill_type,
       status: 'running',
       input_summary: `Event: ${eventType}`
     })
@@ -287,12 +287,10 @@ async function runSubscribedAgent(
     // Run the MCP-powered agent — it has full PushPress tool access
     const result = await runEventAgentWithMCP({
       gym,
-      autopilot,
+      agent,
       eventType,
       eventPayload: eventData
     })
-
-    // Output stored in agent_runs.output below
 
     // Complete the run
     await supabaseAdmin
@@ -304,20 +302,20 @@ async function runSubscribedAgent(
       })
       .eq('id', run!.id)
 
-    // Update autopilot stats
+    // Update agent stats
     const { data: ap } = await supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .select('run_count')
-      .eq('id', autopilot.id)
+      .eq('id', agent.id)
       .single()
 
     await supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .update({
         last_run_at: new Date().toISOString(),
         run_count: (ap?.run_count ?? 0) + 1
       })
-      .eq('id', autopilot.id)
+      .eq('id', agent.id)
   } catch (err) {
     await supabaseAdmin
       .from('agent_runs')

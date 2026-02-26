@@ -3,87 +3,58 @@ export const dynamic = 'force-dynamic'
 /**
  * POST /api/cron/run-analysis
  *
- * Vercel Cron endpoint — runs GMAgent analysis for all connected accounts.
+ * Vercel Cron endpoint — runs active agents for all connected accounts.
  * Called every 6 hours by Vercel Cron.
- * Validates CRON_SECRET header before processing.
  *
  * For each account:
  *   1. Build AccountSnapshot via connector (pushpress-platform.ts)
- *   2. Run GMAgent.runAnalysis() (AI-driven)
- *   3. Save KPI snapshot + artifact
+ *   2. Fetch active cron-triggered agents (agents table)
+ *   3. Run each agent through the generic agent-runtime
+ *   4. Create tasks from insights, save KPI snapshot + artifact
  *
- * This route is infrastructure — it fetches credentials, calls the connector
- * to build an abstract AccountSnapshot, and delegates analysis to the AI.
- * No PushPress-specific types or logic live here.
+ * This route is infrastructure — it fetches credentials, builds the snapshot,
+ * and dispatches to agents. Each agent's behavior is defined by its skill file
+ * + business memories + optional owner override. No hardcoded domain logic.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
-import { GMAgent } from '@/lib/agents/GMAgent'
-import type { AccountSnapshot } from '@/lib/agents/GMAgent'
+import type { AccountSnapshot, AccountInsight } from '@/lib/agents/GMAgent'
+import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
 import { createArtifact } from '@/lib/artifacts/db'
 import type { ResearchSummaryData } from '@/lib/artifacts/types'
-import * as dbTasks from '@/lib/db/tasks'
-import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from '@/lib/models'
 import { buildAccountSnapshot } from '@/lib/pushpress-platform'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Simple Claude evaluate helper for cron context
+// Claude evaluate helper — shared across all agent runs
 // ──────────────────────────────────────────────────────────────────────────────
 
-async function claudeEvaluate(system: string, prompt: string): Promise<string> {
+function makeClaudeEvaluate() {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-  const response = await client.messages.create({
-    model: HAIKU,
-    max_tokens: 512,
-    system,
-    messages: [{ role: 'user', content: prompt }],
-  })
-  const block = response.content.find(b => b.type === 'text')
-  return block?.type === 'text' ? block.text : ''
-}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Build AgentDeps for GMAgent
-// ──────────────────────────────────────────────────────────────────────────────
-
-function buildAgentDeps() {
-  return {
-    db: {
-      getTask: dbTasks.getTask,
-      updateTaskStatus: dbTasks.updateTaskStatus,
-      appendConversation: dbTasks.appendConversation,
-      getConversationHistory: dbTasks.getConversationHistory,
-      createOutboundMessage: async () => { throw new Error('not used in analysis') },
-      updateOutboundMessageStatus: async () => { throw new Error('not used in analysis') },
-    },
-    events: {
-      publishEvent: async () => 'noop',
-    },
-    mailer: {
-      sendEmail: async (params: any) => {
-        await sendEmail(params)
-        return { id: 'noop' }
-      },
-    },
-    claude: {
-      evaluate: claudeEvaluate,
-    },
+  return async function claudeEvaluate(system: string, prompt: string): Promise<string> {
+    const response = await client.messages.create({
+      model: HAIKU,
+      max_tokens: 4096,
+      system,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const block = response.content.find(b => b.type === 'text')
+    return block?.type === 'text' ? block.text : ''
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// POST /api/cron/run-analysis
+// Handler
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function handler(req: NextRequest): Promise<NextResponse> {
-  // Validate CRON_SECRET — Vercel sends Authorization: Bearer <CRON_SECRET> on GET
   const authHeader = req.headers.get('authorization')
   const expectedSecret = process.env.CRON_SECRET
 
@@ -91,7 +62,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('[run-analysis] Starting analysis cron')
+  console.log('[run-agents] Starting agent cron')
 
   // Fetch all connected accounts
   const { data: accounts, error: accountsError } = await supabaseAdmin
@@ -100,10 +71,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     .not('pushpress_api_key', 'is', null)
 
   if (accountsError) {
-    console.error('[run-analysis] Failed to fetch accounts:', accountsError.message)
+    console.error('[run-agents] Failed to fetch accounts:', accountsError.message)
     return NextResponse.json({ error: accountsError.message }, { status: 500 })
   }
 
+  const claude = { evaluate: makeClaudeEvaluate() }
   let accountsAnalyzed = 0
   let totalInsights = 0
   let totalTasksCreated = 0
@@ -115,11 +87,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       try {
         apiKey = decrypt(account.pushpress_api_key)
       } catch (err) {
-        console.error(`[run-analysis] Could not decrypt API key for account ${account.id}:`, err)
+        console.error(`[run-agents] Could not decrypt API key for account ${account.id}:`, err)
         continue
       }
 
-      // Build snapshot via connector layer — all PushPress-specific logic lives there
+      // Build snapshot via connector layer
       let snapshot: AccountSnapshot
       try {
         snapshot = await buildAccountSnapshot(
@@ -130,21 +102,78 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           account.avg_membership_price ?? undefined,
         )
       } catch (err) {
-        console.error(`[run-analysis] Connector fetch failed for account ${account.id}:`, err)
+        console.error(`[run-agents] Connector fetch failed for account ${account.id}:`, err)
         continue
       }
 
-      // Run GMAgent analysis
-      const deps = buildAgentDeps()
-      const agent = new GMAgent(deps as any)
-      agent.setCreateInsightTask((params) => createInsightTask(params))
+      // Fetch active cron-triggered agents for this account
+      const { data: agents } = await supabaseAdmin
+        .from('agents')
+        .select('id, skill_type, system_prompt, name')
+        .eq('account_id', account.id)
+        .eq('is_active', true)
+        .in('trigger_mode', ['cron', 'both'])
 
-      const result = await agent.runAnalysis(account.id, snapshot)
+      if (!agents || agents.length === 0) {
+        console.log(`[run-agents] No active agents for account ${account.id}, skipping`)
+        continue
+      }
 
-      // Save KPI snapshot
+      // Run each agent through the generic runtime
+      const allInsights: AccountInsight[] = []
+      const agentResults: { agentId: string; name: string; count: number }[] = []
+
+      for (const agent of agents) {
+        try {
+          const result = await runAgentAnalysis(
+            {
+              skillType: agent.skill_type,
+              systemPromptOverride: agent.system_prompt,
+              accountId: account.id,
+            },
+            snapshot,
+            claude,
+          )
+
+          // Create tasks from this agent's insights
+          let tasksCreated = 0
+          for (const insight of result.insights) {
+            try {
+              await createInsightTask({ accountId: account.id, insight })
+              tasksCreated++
+            } catch (err) {
+              console.error(`[run-agents] Failed to create task:`, (err as Error).message)
+            }
+          }
+
+          allInsights.push(...result.insights)
+          agentResults.push({ agentId: agent.id, name: agent.name ?? agent.skill_type, count: result.insights.length })
+          totalTasksCreated += tasksCreated
+
+          // Update this agent's run metadata
+          const { data: current } = await supabaseAdmin
+            .from('agents')
+            .select('run_count')
+            .eq('id', agent.id)
+            .single()
+          await supabaseAdmin
+            .from('agents')
+            .update({
+              last_run_at: new Date().toISOString(),
+              run_count: (current?.run_count || 0) + 1,
+            })
+            .eq('id', agent.id)
+
+          console.log(`[run-agents] agent=${agent.name ?? agent.skill_type} insights=${result.insights.length} tasks=${tasksCreated}`)
+        } catch (err) {
+          console.error(`[run-agents] Agent ${agent.skill_type} failed for account ${account.id}:`, err)
+          // Continue to next agent
+        }
+      }
+
+      // Save KPI snapshot (aggregated across all agents)
       const activeMembers = snapshot.members.filter(m => m.status === 'active').length
-      // Count at-risk members by priority (not hardcoded type) — works with AI-assigned types
-      const churnRiskCount = result.insights.filter(
+      const churnRiskCount = allInsights.filter(
         i => i.priority === 'critical' || i.priority === 'high'
       ).length
       const revenueMtd = snapshot.members
@@ -155,47 +184,46 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         activeMembers,
         churnRiskCount,
         revenueMtd,
-        insightsGenerated: result.insightsFound,
+        insightsGenerated: allInsights.length,
         rawData: {
           snapshotCapturedAt: snapshot.capturedAt,
           totalMembers: snapshot.members.length,
+          agentResults,
         },
       })
 
-      // Append system event to the unified GM chat log
-      await appendSystemEvent(
-        account.id,
-        `GM ran analysis. Found ${result.insightsFound} insight${result.insightsFound !== 1 ? 's' : ''}${result.insightsFound > 0 ? ', added to your To-Do.' : '.'}`,
-      )
+      // Build system event summary showing which agents found what
+      const agentSummary = agentResults
+        .filter(a => a.count > 0)
+        .map(a => `${a.name}: ${a.count}`)
+        .join(', ')
+      const eventMsg = allInsights.length > 0
+        ? `Agents found ${allInsights.length} insight${allInsights.length !== 1 ? 's' : ''} (${agentSummary}), added to your To-Do.`
+        : 'Agents ran analysis — no issues found.'
+      await appendSystemEvent(account.id, eventMsg)
 
-      // Generate research summary artifact (fire-and-forget)
-      if (result.insights.length > 0) {
+      // Generate artifact (fire-and-forget)
+      if (allInsights.length > 0) {
         generateAnalysisArtifact(
           account.id,
           account.gym_name ?? 'Your Business',
-          result,
+          { insights: allInsights, insightsFound: allInsights.length, tasksCreated: totalTasksCreated },
           snapshot,
         ).catch(err => {
-          console.warn(`[run-analysis] Artifact generation failed for account ${account.id}:`, (err as Error).message)
+          console.warn(`[run-agents] Artifact generation failed for account ${account.id}:`, (err as Error).message)
         })
       }
 
       accountsAnalyzed++
-      totalInsights += result.insightsFound
-      totalTasksCreated += result.tasksCreated
+      totalInsights += allInsights.length
 
-      console.log(
-        `[run-analysis] account=${account.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
-      )
+      console.log(`[run-agents] account=${account.id} agents=${agents.length} insights=${allInsights.length}`)
     } catch (err) {
-      console.error(`[run-analysis] Unexpected error for account ${account.id}:`, err)
-      // Continue to next account — never abort the whole run
+      console.error(`[run-agents] Unexpected error for account ${account.id}:`, err)
     }
   }
 
-  console.log(
-    `[run-analysis] Done. accountsAnalyzed=${accountsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`
-  )
+  console.log(`[run-agents] Done. accounts=${accountsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`)
 
   return NextResponse.json({
     ok: true,
@@ -210,13 +238,12 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 async function generateAnalysisArtifact(
   accountId: string,
   accountName: string,
-  result: { insights: any[]; insightsFound: number; tasksCreated: number },
+  result: { insights: AccountInsight[]; insightsFound: number; tasksCreated: number },
   snapshot: AccountSnapshot,
 ) {
   const now = new Date()
   const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
 
-  // Get monthly ROI for the artifact
   let roi = { membersRetained: 0, revenueRetained: 0, messagesSent: 0, conversationsActive: 0, escalations: 0 }
   try {
     roi = await getMonthlyRetentionROI(accountId)
@@ -227,8 +254,6 @@ async function generateAnalysisArtifact(
   const priorityToRisk = (p: string): 'high' | 'medium' | 'low' =>
     p === 'critical' || p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
 
-  // Derive member status from priority — not from type string keywords.
-  // The AI assigns types freely; priority is the reliable, structured signal.
   const priorityToStatus = (p: string): 'at_risk' | 'escalated' | 'active' =>
     p === 'critical' ? 'escalated' : p === 'high' || p === 'medium' ? 'at_risk' : 'active'
 
@@ -236,7 +261,7 @@ async function generateAnalysisArtifact(
     accountName,
     generatedAt: now.toISOString(),
     period: monthLabel,
-    generatedBy: 'GM Agent',
+    generatedBy: 'Agents',
     stats: {
       membersAtRisk: result.insights.filter(i => i.priority === 'critical' || i.priority === 'high' || i.priority === 'medium').length,
       membersRetained: roi.membersRetained,
@@ -255,10 +280,10 @@ async function generateAnalysisArtifact(
     })),
     insights: [
       ...result.insights.length > 0
-        ? [`${result.insightsFound} members flagged across ${new Set(result.insights.map((i: any) => i.type)).size} categories`]
+        ? [`${result.insightsFound} members flagged across ${new Set(result.insights.map(i => i.type)).size} categories`]
         : [],
-      ...(result.insights.filter((i: any) => i.priority === 'critical').length > 0
-        ? [`${result.insights.filter((i: any) => i.priority === 'critical').length} critical priority — review these first`]
+      ...(result.insights.filter(i => i.priority === 'critical').length > 0
+        ? [`${result.insights.filter(i => i.priority === 'critical').length} critical priority — review these first`]
         : []),
       ...(roi.membersRetained > 0
         ? [`${roi.membersRetained} members retained this month, saving $${roi.revenueRetained.toLocaleString()}`]
@@ -275,7 +300,7 @@ async function generateAnalysisArtifact(
     shareable: true,
   })
 
-  console.log(`[run-analysis] Artifact generated for account ${accountId}`)
+  console.log(`[run-agents] Artifact generated for account ${accountId}`)
 }
 
 // Vercel Cron Jobs send GET requests — also keep POST for manual triggers

@@ -90,12 +90,12 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
         system_prompt: systemPrompt,
       }
       const res = isNew
-        ? await fetch('/api/autopilots', {
+        ? await fetch('/api/agents', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
-        : await fetch(`/api/autopilots/${agent!.id}`, {
+        : await fetch(`/api/agents/${agent!.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -116,7 +116,7 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     if (!confirm(`Delete "${agent.name}"? This cannot be undone.`)) return
     setDeleting(true)
     try {
-      await fetch(`/api/autopilots/${agent.id}`, { method: 'DELETE' })
+      await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
       onDeleted()
       onBack()
     } catch {

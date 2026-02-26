@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Re-fetch to get current gym row (ID needed for webhook + autopilot steps)
+    // Re-fetch to get current account row (ID needed for webhook + bootstrap)
     const { data: account } = await supabaseAdmin
       .from('accounts')
       .select('id, webhook_id')
@@ -175,32 +175,7 @@ export async function POST(req: NextRequest) {
         )
     }
 
-    // Create default at_risk_detector autopilot if not existing
-    if (account) {
-      const { data: existingAutopilot } = await supabaseAdmin
-        .from('autopilots')
-        .select('id')
-        .eq('account_id', account.id)
-        .eq('skill_type', 'at_risk_detector')
-        .single()
-
-      if (!existingAutopilot) {
-        await supabaseAdmin.from('autopilots').insert({
-          account_id: account.id,
-          skill_type: 'at_risk_detector',
-          name: '🚨 At-Risk Member Detector',
-          description: 'Finds members who are going quiet before they cancel',
-          trigger_mode: 'cron',
-          cron_schedule: 'daily',
-          trigger_config: { threshold_days: 14 },
-          action_type: 'draft_message',
-          data_sources: ['customers-list', 'checkins-class-list'],
-          is_active: true,
-          run_count: 0,
-          approval_rate: 0
-        })
-      }
-    }
+    // No auto-seeding — owners build their own agents via the /setup wizard
 
     // Bootstrap business profile — fire-and-forget, never blocks connect response
     bootstrapBusinessProfile(

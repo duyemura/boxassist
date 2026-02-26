@@ -92,7 +92,7 @@ export type Database = {
           created_at: string
         }
       }
-      autopilots: {
+      agents: {
         Row: {
           id: string
           account_id: string

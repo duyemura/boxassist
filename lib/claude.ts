@@ -328,14 +328,14 @@ Output this exact JSON structure:
 
 export async function runEventAgentWithMCP(opts: {
   gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string }
-  autopilot: { skill_type: string; name?: string; system_prompt?: string; action_type?: string }
+  agent: { skill_type: string; name?: string; system_prompt?: string; action_type?: string }
   eventType: string
   eventPayload: Record<string, unknown>
 }): Promise<MCPAgentResult> {
-  const { gym, autopilot, eventType, eventPayload } = opts
+  const { gym, agent, eventType, eventPayload } = opts
 
   const systemPrompt =
-    autopilot.system_prompt ??
+    agent.system_prompt ??
     buildDefaultEventSystemPrompt(eventType, gym.account_name)
 
   const userPrompt = buildEventUserPrompt(eventType, eventPayload, gym.account_name)
