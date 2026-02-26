@@ -106,18 +106,17 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         continue
       }
 
-      // Fetch active cron-triggered agents for this account
-      // Filter by run_hour so daily/weekly agents only fire at the owner's chosen time
+      // Fetch cron automations due now, joined with agent capability
       const currentUTCHour = new Date().getUTCHours()
-      const { data: agentsRaw } = await supabaseAdmin
-        .from('agents')
-        .select('id, skill_type, system_prompt, name, cron_schedule, run_hour')
+      const { data: automationsRaw } = await supabaseAdmin
+        .from('agent_automations')
+        .select('id, cron_schedule, run_hour, agent_id, agents!inner(id, skill_type, system_prompt, name)')
         .eq('account_id', account.id)
+        .eq('trigger_type', 'cron')
         .eq('is_active', true)
-        .in('trigger_mode', ['cron', 'both'])
 
-      // Hourly agents always run; daily/weekly agents only run at their scheduled hour
-      const agents = (agentsRaw ?? []).filter(a => {
+      // Hourly automations always run; daily/weekly only at their scheduled hour
+      const dueAutomations = (automationsRaw ?? []).filter((a: any) => {
         if (a.cron_schedule === 'hourly') return true
         const agentHour = a.run_hour ?? 9
         if (a.cron_schedule === 'daily') return currentUTCHour === agentHour
@@ -127,6 +126,12 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         }
         return true
       })
+
+      // Extract agent objects from the join
+      const agents = dueAutomations.map((a: any) => ({
+        ...(a.agents as any),
+        automationId: a.id,
+      }))
 
       if (agents.length === 0) {
         console.log(`[run-agents] No agents due for account ${account.id} at UTC hour ${currentUTCHour}, skipping`)
@@ -164,19 +169,20 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           agentResults.push({ agentId: agent.id, name: agent.name ?? agent.skill_type, count: result.insights.length })
           totalTasksCreated += tasksCreated
 
-          // Update this agent's run metadata
-          const { data: current } = await supabaseAdmin
-            .from('agents')
-            .select('run_count')
-            .eq('id', agent.id)
-            .single()
+          // Record this agent run
           await supabaseAdmin
-            .from('agents')
-            .update({
-              last_run_at: new Date().toISOString(),
-              run_count: (current?.run_count || 0) + 1,
+            .from('agent_runs')
+            .insert({
+              account_id: account.id,
+              agent_id: agent.id,
+              agent_type: agent.skill_type,
+              automation_id: agent.automationId ?? null,
+              trigger_source: 'cron',
+              trigger_ref: agent.automationId ? 'scheduled' : null,
+              status: 'completed',
+              input_summary: `Cron: ${result.insights.length} insights from ${snapshot.members.length} members`,
+              output: { insightCount: result.insights.length, tasksCreated },
             })
-            .eq('id', agent.id)
 
           console.log(`[run-agents] agent=${agent.name ?? agent.skill_type} insights=${result.insights.length} tasks=${tasksCreated}`)
         } catch (err) {

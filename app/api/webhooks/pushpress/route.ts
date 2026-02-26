@@ -158,26 +158,27 @@ async function processWebhookAsync(rawBody: string) {
     pushpress_api_key: decryptedApiKey
   }
 
-  // Find active agent subscriptions for this event type
-  const { data: subs, error: subsErr } = await supabaseAdmin
-    .from('agent_subscriptions')
-    .select('id, agent_id, agents(*)')
+  // Find active event automations for this event type
+  const { data: automations, error: autoErr } = await supabaseAdmin
+    .from('agent_automations')
+    .select('id, agent_id, agents!inner(*)')
     .eq('account_id', account.id)
+    .eq('trigger_type', 'event')
     .eq('event_type', eventType)
     .eq('is_active', true)
 
-  if (subsErr) console.log(`[webhook] subs query error: ${subsErr.message}`)
-  console.log(`[webhook] found ${subs?.length ?? 0} subscriptions for ${eventType}`)
+  if (autoErr) console.log(`[webhook] automations query error: ${autoErr.message}`)
+  console.log(`[webhook] found ${automations?.length ?? 0} event automations for ${eventType}`)
 
   let runsTriggered = 0
   // eventData already extracted above for companyId; reuse it for agent runs
 
-  for (const sub of subs ?? []) {
-    const agent = (sub as any).agents
+  for (const auto of automations ?? []) {
+    const agent = (auto as any).agents
     if (!agent?.is_active) continue
 
     try {
-      await runSubscribedAgent(gymWithKey, agent, eventType, eventData)
+      await runSubscribedAgent(gymWithKey, agent, eventType, eventData, auto.id)
       runsTriggered++
     } catch (err) {
       console.error(`[webhook] agent ${agent.id} failed:`, err)
@@ -269,14 +270,19 @@ async function runSubscribedAgent(
   gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string },
   agent: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
   eventType: string,
-  eventData: Record<string, unknown>
+  eventData: Record<string, unknown>,
+  automationId?: string,
 ) {
   // Create agent run record
   const { data: run } = await supabaseAdmin
     .from('agent_runs')
     .insert({
-      account_id: account.id,
+      account_id: gym.id,
+      agent_id: agent.id,
       agent_type: agent.skill_type,
+      automation_id: automationId ?? null,
+      trigger_source: 'event',
+      trigger_ref: eventType,
       status: 'running',
       input_summary: `Event: ${eventType}`
     })
@@ -302,20 +308,6 @@ async function runSubscribedAgent(
       })
       .eq('id', run!.id)
 
-    // Update agent stats
-    const { data: ap } = await supabaseAdmin
-      .from('agents')
-      .select('run_count')
-      .eq('id', agent.id)
-      .single()
-
-    await supabaseAdmin
-      .from('agents')
-      .update({
-        last_run_at: new Date().toISOString(),
-        run_count: (ap?.run_count ?? 0) + 1
-      })
-      .eq('id', agent.id)
   } catch (err) {
     await supabaseAdmin
       .from('agent_runs')

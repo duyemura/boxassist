@@ -81,25 +81,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to create agent' }, { status: 500 })
     }
 
-    // If event-triggered and not demo, create agent_subscription record
-    if (
-      !isDemo &&
-      accountId &&
-      (config.trigger_mode === 'event' || config.trigger_mode === 'both') &&
-      config.trigger_event
-    ) {
-      const { error: subError } = await supabaseAdmin
-        .from('agent_subscriptions')
-        .insert({
-          account_id: accountId,
-          agent_id: agent.id,
-          event_type: config.trigger_event,
-          is_active: true
-        })
+    // Create automation records in agent_automations
+    if (!isDemo && accountId) {
+      // Cron automation
+      if (config.trigger_mode === 'cron' || config.trigger_mode === 'both') {
+        const { error: cronErr } = await supabaseAdmin
+          .from('agent_automations')
+          .insert({
+            agent_id: agent.id,
+            account_id: accountId,
+            trigger_type: 'cron',
+            cron_schedule: config.cron_schedule ?? 'daily',
+            run_hour: (config as any).run_hour ?? 9,
+            is_active: true,
+          })
+        if (cronErr) console.error('Cron automation insert error:', cronErr)
+      }
 
-      if (subError) {
-        console.error('Subscription insert error:', subError)
-        // Non-fatal — agent was created, subscription failed
+      // Event automation
+      if (
+        (config.trigger_mode === 'event' || config.trigger_mode === 'both') &&
+        config.trigger_event
+      ) {
+        const { error: eventErr } = await supabaseAdmin
+          .from('agent_automations')
+          .insert({
+            agent_id: agent.id,
+            account_id: accountId,
+            trigger_type: 'event',
+            event_type: config.trigger_event,
+            is_active: true,
+          })
+        if (eventErr) console.error('Event automation insert error:', eventErr)
+
+        // Legacy dual-write to agent_subscriptions during migration
+        await supabaseAdmin
+          .from('agent_subscriptions')
+          .insert({
+            account_id: accountId,
+            agent_id: agent.id,
+            event_type: config.trigger_event,
+            is_active: true,
+          })
+          .then(() => {}, () => {}) // ignore errors on legacy write
       }
     }
 

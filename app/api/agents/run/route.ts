@@ -105,22 +105,6 @@ export async function POST(req: NextRequest) {
 
           emit({ type: 'status', text: `Analysis complete \u2014 ${agentOutput.actions.length} members flagged` })
 
-          if (demoSessionId) {
-            const { data: currentAgent } = await supabaseAdmin
-              .from('agents')
-              .select('run_count, id')
-              .eq('demo_session_id', demoSessionId)
-              .eq('skill_type', 'at_risk_detector')
-              .gt('expires_at', new Date().toISOString())
-              .single()
-            if (currentAgent) {
-              await supabaseAdmin
-                .from('agents')
-                .update({ last_run_at: new Date().toISOString(), run_count: (currentAgent.run_count || 0) + 1 })
-                .eq('id', currentAgent.id)
-            }
-          }
-
           emit({
             type: 'done',
             result: { success: true, runId: `demo-run-${demoSessionId || 'anon'}`, output: agentOutput, tier: 'pro', isDemo: true },
@@ -202,6 +186,7 @@ export async function POST(req: NextRequest) {
           .insert({
             account_id: accountId,
             agent_type: 'multi_agent',
+            trigger_source: 'manual',
             status: 'running',
             input_summary: `Manual scan: ${agents.length} agent(s) analyzing ${snapshot.members.length} members`,
           })
@@ -242,15 +227,6 @@ export async function POST(req: NextRequest) {
 
             allInsights.push(...result.insights)
             agentResults.push({ agentId: agent.id, name: agentName, count: result.insights.length })
-
-            // Update this agent's run metadata
-            await supabaseAdmin
-              .from('agents')
-              .update({
-                last_run_at: new Date().toISOString(),
-                run_count: (agent.run_count || 0) + 1,
-              })
-              .eq('id', agent.id)
 
             if (result.insights.length > 0) {
               emit({ type: 'status', text: `${agentName}: ${result.insights.length} insight(s) found` })

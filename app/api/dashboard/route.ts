@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
 
   const tier = getTier(user)
 
-  // Get agents for this account
+  // Get agents + their automations for this account
   let agents: any[] = []
   if (account) {
     const { data } = await supabaseAdmin
@@ -127,9 +127,35 @@ export async function GET(req: NextRequest) {
       .select('*')
       .eq('account_id', account.id)
       .order('created_at', { ascending: true })
-    agents = data || []
+
+    // Fetch automations and merge into agent objects for backward-compatible response
+    const { data: automations } = await supabaseAdmin
+      .from('agent_automations')
+      .select('*')
+      .eq('account_id', account.id)
+
+    const autoMap = new Map<string, any[]>()
+    for (const a of automations ?? []) {
+      const list = autoMap.get(a.agent_id) ?? []
+      list.push(a)
+      autoMap.set(a.agent_id, list)
+    }
+
+    agents = (data || []).map((agent: any) => {
+      const agentAutos = autoMap.get(agent.id) ?? []
+      const cronAuto = agentAutos.find((a: any) => a.trigger_type === 'cron')
+      const eventAuto = agentAutos.find((a: any) => a.trigger_type === 'event')
+      return {
+        ...agent,
+        // Merge automation data so frontend keeps working
+        automations: agentAutos,
+        cron_schedule: cronAuto?.cron_schedule ?? agent.cron_schedule,
+        run_hour: cronAuto?.run_hour ?? agent.run_hour,
+        trigger_event: eventAuto?.event_type ?? agent.trigger_event,
+      }
+    })
   }
-  
+
   // Get recent runs
   let recentRuns: any[] = []
   if (account) {

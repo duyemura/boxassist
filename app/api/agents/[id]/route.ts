@@ -31,22 +31,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json()
   const { name, description, skill_type, cron_schedule, run_hour, system_prompt, active } = body
 
-  const updates: Record<string, unknown> = {}
-  if (name !== undefined) updates.name = name.trim()
-  if (description !== undefined) updates.description = description?.trim() ?? null
-  if (skill_type !== undefined) updates.skill_type = skill_type.trim()
-  if (cron_schedule !== undefined) updates.cron_schedule = cron_schedule
-  if (run_hour !== undefined) updates.run_hour = run_hour
-  if (system_prompt !== undefined) updates.system_prompt = system_prompt?.trim() || null
-  if (active !== undefined) updates.is_active = active
+  // Agent capability updates
+  const agentUpdates: Record<string, unknown> = {}
+  if (name !== undefined) agentUpdates.name = name.trim()
+  if (description !== undefined) agentUpdates.description = description?.trim() ?? null
+  if (skill_type !== undefined) agentUpdates.skill_type = skill_type.trim()
+  if (system_prompt !== undefined) agentUpdates.system_prompt = system_prompt?.trim() || null
+  if (active !== undefined) agentUpdates.is_active = active
+  // Legacy dual-write: keep old columns in sync during migration
+  if (cron_schedule !== undefined) agentUpdates.cron_schedule = cron_schedule
+  if (run_hour !== undefined) agentUpdates.run_hour = run_hour
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(agentUpdates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }
 
   const { data, error } = await supabaseAdmin
     .from('agents')
-    .update(updates)
+    .update(agentUpdates)
     .eq('id', params.id)
     .select('*')
     .single()
@@ -54,6 +56,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (error) {
     console.error('[agents/[id]] Update error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Automation updates (schedule fields)
+  if (cron_schedule !== undefined || run_hour !== undefined || active !== undefined) {
+    const autoUpdates: Record<string, unknown> = {}
+    if (cron_schedule !== undefined) autoUpdates.cron_schedule = cron_schedule
+    if (run_hour !== undefined) autoUpdates.run_hour = run_hour
+    if (active !== undefined) autoUpdates.is_active = active
+
+    await supabaseAdmin
+      .from('agent_automations')
+      .update(autoUpdates)
+      .eq('agent_id', params.id)
   }
 
   return NextResponse.json({ agent: data })
@@ -67,7 +82,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const owned = await getOwnedAgent(params.id, session.id)
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Also clean up any agent_subscriptions for this agent
+  // agent_automations cascade on agent delete, but clean up explicitly for safety
+  await supabaseAdmin.from('agent_automations').delete().eq('agent_id', params.id)
+  // Legacy cleanup
   await supabaseAdmin.from('agent_subscriptions').delete().eq('agent_id', params.id)
 
   const { error } = await supabaseAdmin.from('agents').delete().eq('id', params.id)

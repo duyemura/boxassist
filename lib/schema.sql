@@ -81,7 +81,20 @@ create table if not exists public.webhook_events (
   created_at timestamptz default now()
 );
 
--- Agent subscriptions: which agent listens to which event
+-- Agent automations: when/how agents run (decoupled from agent capability)
+create table if not exists public.agent_automations (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid not null references public.agents(id) on delete cascade,
+  account_id uuid references public.accounts(id) on delete cascade,
+  trigger_type text not null,          -- 'cron' | 'event'
+  cron_schedule text,                  -- 'hourly' | 'daily' | 'weekly' (null for event)
+  run_hour integer default 9,          -- 0-23 UTC (null for event/hourly)
+  event_type text,                     -- e.g. 'lead.created' (null for cron)
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+-- Legacy: agent_subscriptions (kept during migration, superseded by agent_automations)
 create table if not exists public.agent_subscriptions (
   id uuid primary key default gen_random_uuid(),
   account_id uuid references public.accounts(id) on delete cascade not null,

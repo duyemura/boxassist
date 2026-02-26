@@ -18,14 +18,15 @@ export async function POST(req: NextRequest) {
   if (!name?.trim()) return NextResponse.json({ error: 'name is required' }, { status: 400 })
   if (!skill_type?.trim()) return NextResponse.json({ error: 'skill_type is required' }, { status: 400 })
 
-  const { data, error } = await supabaseAdmin
+  // 1. Insert agent (capability only)
+  const { data: agent, error } = await supabaseAdmin
     .from('agents')
     .insert({
       account_id: account.id,
       name: name.trim(),
       description: description?.trim() ?? null,
       skill_type: skill_type.trim(),
-      trigger_mode: 'cron',
+      trigger_mode: 'cron',        // legacy column — kept for backward compat
       cron_schedule: cron_schedule ?? 'daily',
       run_hour: run_hour ?? 9,
       system_prompt: system_prompt?.trim() || null,
@@ -41,5 +42,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ agent: data }, { status: 201 })
+  // 2. Create automation record
+  await supabaseAdmin
+    .from('agent_automations')
+    .insert({
+      agent_id: agent.id,
+      account_id: account.id,
+      trigger_type: 'cron',
+      cron_schedule: cron_schedule ?? 'daily',
+      run_hour: run_hour ?? 9,
+      is_active: active ?? true,
+    })
+
+  return NextResponse.json({ agent }, { status: 201 })
 }
