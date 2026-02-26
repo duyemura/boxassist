@@ -27,12 +27,12 @@ export default function RetentionScorecard() {
 
   if (!data) {
     return (
-      <div className="border-b border-gray-100" style={{ backgroundColor: '#F4F5F7' }}>
-        <div className="px-6 py-4 flex gap-8">
-          {[1, 2, 3, 4].map(i => (
+      <div className="w-full border-b border-gray-200" style={{ backgroundColor: '#F4F5F7' }}>
+        <div className="flex items-center gap-8 px-6 py-3">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex-1">
-              <div className="animate-pulse bg-gray-200 h-5 w-16 mb-1" />
-              <div className="animate-pulse bg-gray-200 h-3 w-24" />
+              <div className="animate-pulse bg-gray-200 h-3 w-16 mb-1.5" />
+              <div className="animate-pulse bg-gray-200 h-5 w-10" />
             </div>
           ))}
         </div>
@@ -40,42 +40,53 @@ export default function RetentionScorecard() {
     )
   }
 
-  const needsAttention = data.conversationsActive + data.escalations
+  const needsAttention = data.escalations + data.conversationsActive
+  const costEstimate = ((data.messagesSent * 0.003) + (data.tasksCreated * 0.001)).toFixed(2)
 
-  const stats = [
+  const stats: Array<{ label: string; value: string; color?: string }> = [
     {
-      label: 'MEMBERS RETAINED',
-      value: data.membersRetained,
-      color: '#16A34A',
+      label: 'RETAINED',
+      value: data.membersRetained.toString(),
+      color: data.membersRetained > 0 ? '#16A34A' : undefined,
     },
     {
       label: 'REVENUE SAVED',
       value: `$${data.revenueRetained.toLocaleString()}`,
-      color: '#16A34A',
+      color: data.revenueRetained > 0 ? '#16A34A' : undefined,
     },
     {
-      label: 'CONVERSATIONS',
-      value: data.conversationsActive,
-      color: '#0063FF',
+      label: 'ACTIVE',
+      value: data.conversationsActive.toString(),
+      color: data.conversationsActive > 0 ? '#0063FF' : undefined,
     },
     {
-      label: 'NEEDS ATTENTION',
-      value: needsAttention,
-      color: needsAttention > 0 ? '#F59E0B' : '#9CA3AF',
+      label: 'COST',
+      value: `$${costEstimate}`,
+    },
+    {
+      label: 'ATTENTION',
+      value: needsAttention.toString(),
+      color: needsAttention > 0 ? '#F59E0B' : undefined,
     },
   ]
 
   return (
-    <div className="border-b border-gray-100" style={{ backgroundColor: '#F4F5F7' }}>
-      <div className="px-6 py-4 flex gap-8 overflow-x-auto">
-        {stats.map(stat => (
-          <div key={stat.label} className="flex-1 min-w-0">
-            <p className="text-lg font-semibold" style={{ color: stat.color }}>
-              {stat.value}
-            </p>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mt-0.5">
-              {stat.label}
-            </p>
+    <div className="w-full border-b border-gray-200 flex-shrink-0" style={{ backgroundColor: '#F4F5F7' }}>
+      <div className="flex items-center px-6 py-3">
+        {stats.map((s, i) => (
+          <div key={s.label} className="flex-1 flex items-center gap-3">
+            {i > 0 && <div className="w-px h-8 bg-gray-200 mr-3" />}
+            <div>
+              <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-0.5">
+                {s.label}
+              </p>
+              <p
+                className="text-lg font-semibold"
+                style={{ color: s.color ?? '#111827' }}
+              >
+                {s.value}
+              </p>
+            </div>
           </div>
         ))}
       </div>

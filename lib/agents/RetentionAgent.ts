@@ -1,35 +1,24 @@
 /**
  * RetentionAgent — handles member re-engagement conversations.
  *
+ * Loads task-skill markdown files at runtime for context-aware evaluation.
  * Dependency-injected: no hardcoded imports of supabase, claude, or resend.
  * All external calls go through the AgentDeps interface.
  */
 import { BaseAgent } from './BaseAgent'
 import type { TaskEvaluation, TaskOutcome } from '../types/agents'
+import { buildEvaluationPrompt } from '../skill-loader'
 
-const SYSTEM_PROMPT = `You are a retention agent for a gym. You help re-engage members who have reduced attendance or are at risk of churning. You evaluate conversations and decide the best next action.
-
-Your role:
-- Analyze the conversation between the gym and the member
-- Understand what the member is actually communicating (emotions, intent, blockers)
-- Decide the best next action: reply, close, escalate, or wait
-
-## Decision criteria
-- "reply": conversation is open, member hasn't committed yet, keep it going with a specific nudge
-- "close": member made a CONCRETE commitment (specific day/class) → outcome='engaged', OR member clearly declined → outcome='churned'
-- "escalate": member has a complaint, billing issue, injury mention, or strong negative emotion
-- "wait": rarely used — only when re-contact timing matters more than content
-
-## IMPORTANT: close only on concrete commitment
-A vague reply ("I'll check the schedule", "maybe soon", "things have been busy") is NOT a close. Keep the conversation going.
+/** Fallback prompt when skill loading fails */
+const FALLBACK_SYSTEM_PROMPT = `You are a retention agent for a gym. Evaluate the conversation and decide the best next action.
 
 ## Output format
 Respond ONLY with valid JSON (no markdown fences):
 
 {
-  "reasoning": "2-3 sentences on what the member is communicating and what a skilled coach would do",
+  "reasoning": "2-3 sentences on what the member is communicating",
   "action": "reply" | "close" | "escalate" | "wait",
-  "reply": "the message to send (required for action=reply, optional for close/escalate)",
+  "reply": "the message to send (required for action=reply)",
   "outcomeScore": 0-100,
   "resolved": true | false,
   "scoreReason": "one sentence on outcome quality",
@@ -157,6 +146,7 @@ export class RetentionAgent extends BaseAgent {
 
   /**
    * Core reasoning — loads task + full conversation, calls Claude, returns structured decision.
+   * Loads the appropriate task-skill prompt based on task_type.
    */
   async evaluateTask(taskId: string): Promise<TaskEvaluation> {
     try {
@@ -166,6 +156,15 @@ export class RetentionAgent extends BaseAgent {
       const gymName = (task?.context as any)?.gymName ?? 'the gym'
       const memberName = task?.member_name ?? 'the member'
       const goal = task?.goal ?? 'Re-engage the member'
+      const taskType = task?.task_type ?? 'churn_risk'
+
+      // Load skill-aware system prompt based on task type
+      let systemPrompt: string
+      try {
+        systemPrompt = await buildEvaluationPrompt(taskType)
+      } catch {
+        systemPrompt = FALLBACK_SYSTEM_PROMPT
+      }
 
       // Build conversation text for Claude
       const convoLines = history
@@ -185,7 +184,7 @@ ${convoLines || '(no conversation history yet)'}
 
 Evaluate the conversation and decide the best next action. Return only valid JSON.`
 
-      const raw = await this.deps.claude.evaluate(SYSTEM_PROMPT, prompt)
+      const raw = await this.deps.claude.evaluate(systemPrompt, prompt)
       return this._parseEvaluation(raw)
     } catch (err) {
       console.error('RetentionAgent.evaluateTask error:', err)

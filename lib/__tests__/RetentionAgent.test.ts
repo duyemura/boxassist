@@ -342,7 +342,7 @@ describe('RetentionAgent.evaluateTask', () => {
 
     // The prompt should include the goal and conversation content
     const [system, prompt] = (deps.claude.evaluate as any).mock.calls[0]
-    expect(system).toContain('retention')
+    expect(system).toContain('Escalation Triggers')
     expect(prompt).toContain('Get Dan back to class')
     expect(prompt).toContain("I've been busy.")
   })

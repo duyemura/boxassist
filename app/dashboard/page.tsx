@@ -8,6 +8,8 @@ import ReviewQueue from '@/components/ReviewQueue'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import GMChat from '@/components/GMChat'
+import RetentionScorecard from '@/components/RetentionScorecard'
+import ActivityFeed from '@/components/ActivityFeed'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -357,10 +359,15 @@ function DashboardContent() {
   const mainContent = (
     <>
       {/* Mobile */}
-      <div className="md:hidden h-full overflow-y-auto px-4 py-4">
+      <div className="md:hidden h-full overflow-y-auto">
         {activeSection === 'settings'
-          ? <SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} />
-          : mobileContent
+          ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
+          : (
+            <>
+              <RetentionScorecard />
+              <div className="px-4 py-4">{mobileContent}</div>
+            </>
+          )
         }
       </div>
 
@@ -374,20 +381,24 @@ function DashboardContent() {
             <SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} />
           </div>
         ) : (
-          <AgentPageLayout
-            agentName="GM Agent"
-            agentDescription="Retention · Win-Back · At-Risk"
-            status="active"
-            lastRunAt={gmLastRunAt}
-            memberCount={memberCount}
-            onRunNow={runScan}
-            isRunning={running}
-            runLabel="Run scan"
-            executionMode={executionMode}
-            queueCount={uniqueActions.length}
-            queueSlot={reviewQueueNode}
-            chatSlot={gmChatNode}
-          />
+          <>
+            <RetentionScorecard />
+            <AgentPageLayout
+              agentName="GM Agent"
+              agentDescription="Retention · Win-Back · At-Risk"
+              status="active"
+              lastRunAt={gmLastRunAt}
+              memberCount={memberCount}
+              onRunNow={runScan}
+              isRunning={running}
+              runLabel="Run scan"
+              executionMode={executionMode}
+              queueCount={uniqueActions.length}
+              queueSlot={reviewQueueNode}
+              feedSlot={<ActivityFeed />}
+              chatSlot={gmChatNode}
+            />
+          </>
         )}
       </div>
     </>

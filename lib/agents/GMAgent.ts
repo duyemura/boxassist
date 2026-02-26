@@ -14,6 +14,7 @@
  */
 
 import { BaseAgent } from './BaseAgent'
+import { buildDraftingPrompt } from '../skill-loader'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -376,24 +377,19 @@ export class GMAgent extends BaseAgent {
 
   /**
    * Draft a coach-voice message for a given insight.
-   * Uses deps.claude to generate the draft.
+   * Loads the appropriate task-skill for the insight type, then calls Claude.
    */
   async draftMessage(insight: GymInsight, gymContext: GymContext): Promise<string> {
-    // Use a different prompt for win-back messages
-    const isWinBack = insight.type === 'win_back'
+    // Load skill-aware drafting prompt based on insight type
+    let system: string
+    try {
+      system = await buildDraftingPrompt(insight.type)
+    } catch {
+      // Fallback if skill loading fails
+      system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names.
 
-    const system = isWinBack
-      ? `You are a message drafting assistant for a gym owner. A member just cancelled. Write a genuine, personal message that:
-- Acknowledges the cancellation directly (don't pretend it didn't happen)
-- References their history if available ("you've been with us for X months")
-- Is genuine, not salesy — no discounts, no hard sells
-- Leaves the door open without pressure
-- Feels like it's from a real person, not a business
-
-Keep it 2-3 sentences. No emojis. Use first names.`
-      : `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. The message should feel like it's coming from a real person who knows the member.
-
-Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use first names. Be direct but caring.`
+Return ONLY the message text — no subject line, no explanation, just the message.`
+    }
 
     const insightContext = [
       `Gym: ${gymContext.gymName}`,
@@ -406,8 +402,7 @@ Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use f
 
     const prompt = `${insightContext}
 
-Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}.
-Return ONLY the message text — no subject line, no explanation, just the message.`
+Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}.`
 
     const draft = await this.deps.claude.evaluate(system, prompt)
     return draft.trim()
