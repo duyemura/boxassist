@@ -9,6 +9,7 @@ import type {
   UpdateTaskStatusOpts,
   AppendConversationParams,
 } from '../types/agents'
+import { publishEvent } from './events'
 import type { GymInsight } from '../agents/GMAgent'
 
 /** Max autopilot messages per gym per day */
@@ -45,7 +46,27 @@ export async function createTask(params: CreateTaskParams): Promise<AgentTask> {
     throw new Error(`createTask failed: ${error.message}`)
   }
 
-  return data as AgentTask
+  const task = data as AgentTask
+
+  // Publish TaskCreated event (fire-and-forget — never block task creation)
+  publishEvent({
+    gymId: task.gym_id,
+    eventType: 'TaskCreated',
+    aggregateId: task.id,
+    aggregateType: 'task',
+    payload: {
+      taskId: task.id,
+      taskType: task.task_type,
+      assignedAgent: task.assigned_agent,
+      memberEmail: task.member_email,
+      memberName: task.member_name,
+      requiresApproval: task.requires_approval,
+    },
+  }).catch(err => {
+    console.warn('[tasks] Failed to publish TaskCreated event:', (err as Error).message)
+  })
+
+  return task
 }
 
 // ============================================================
@@ -92,6 +113,39 @@ export async function updateTaskStatus(
 
   if (error) {
     throw new Error(`updateTaskStatus failed: ${error.message}`)
+  }
+
+  // Publish lifecycle events (fire-and-forget — never block status updates)
+  if (status === 'resolved' || status === 'escalated') {
+    // Need gym_id for the event — fetch the task
+    supabaseAdmin
+      .from('agent_tasks')
+      .select('gym_id, task_type, member_email, assigned_agent')
+      .eq('id', taskId)
+      .single()
+      .then(({ data: task }) => {
+        if (!task) return
+        const eventType = status === 'resolved' ? 'TaskCompleted' : 'TaskEscalated'
+        return publishEvent({
+          gymId: task.gym_id,
+          eventType,
+          aggregateId: taskId,
+          aggregateType: 'task',
+          payload: {
+            taskId,
+            taskType: task.task_type,
+            assignedAgent: task.assigned_agent,
+            memberEmail: task.member_email,
+            status,
+            outcome: opts?.outcome ?? null,
+            outcomeScore: opts?.outcomeScore ?? null,
+            outcomeReason: opts?.outcomeReason ?? null,
+          },
+        })
+      })
+      .catch(err => {
+        console.warn(`[tasks] Failed to publish ${status} event:`, (err as Error).message)
+      })
   }
 }
 
