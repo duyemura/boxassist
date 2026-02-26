@@ -126,7 +126,7 @@ The AI becomes the decision-maker at every stage. Code handles infrastructure (d
 | Concern | Why it must be code |
 |---------|-------------------|
 | Authentication & authorization | Security can't be AI-optional |
-| Multi-tenant data isolation | `gym_id` scoping is non-negotiable |
+| Multi-tenant data isolation | `account_id` scoping is non-negotiable |
 | Rate limits & daily send caps | Safety rails need hard guarantees |
 | Encryption & credential management | Cryptographic operations |
 | Message delivery (email/SMS) | Infrastructure, not decisions |
@@ -188,7 +188,7 @@ The GM Agent surveys the whole account to *discover* what needs attention. You c
  * Built once per cron run. Used by GMAgent.runAnalysis() to find insights.
  * Eager: all members, checkins, enrollments, payment events.
  *
- * Renamed from GymSnapshot — no gym-specific assumptions.
+ * No business-type-specific assumptions — works for gyms, studios, any subscription business.
  */
 export interface AccountSnapshot {
   accountId: string
@@ -317,13 +317,13 @@ RIGHT: RetentionAgent receives TaskContext with pre-loaded enrollment data
 
 ### Phase A: Loosen the Analysis Pipeline
 
-**Current:** `GMAgent.analyzeGym()` runs `scoreChurnRisk()` per member → produces typed `GymInsight[]`
+**Current:** `GMAgent.analyzeGym()` runs `scoreChurnRisk()` per member → produces typed `AccountInsight[]`
 
 **New:** `GMAgent.analyzeGym()` sends member data + skills + memories to Claude → Claude returns structured insights
 
 ```typescript
 // Before: 80 lines of scoring formulas
-analyzeGym(snapshot: GymSnapshot): GymInsight[] {
+analyzeGym(snapshot: AccountSnapshot): AccountInsight[] {
   for (const member of snapshot.members) {
     const riskScore = this.scoreChurnRisk(member) // hardcoded formula
     if (riskScore.level === 'low') continue
@@ -332,9 +332,9 @@ analyzeGym(snapshot: GymSnapshot): GymInsight[] {
 }
 
 // After: AI-driven analysis with structured output
-async analyzeGym(snapshot: GymSnapshot, gymId: string): Promise<GymInsight[]> {
+async analyzeGym(snapshot: AccountSnapshot, accountId: string): Promise<AccountInsight[]> {
   const skills = await loadAllSkills()             // all skill files as context
-  const memories = await getMemoriesForPrompt(gymId)
+  const memories = await getMemoriesForPrompt(accountId)
   const memberSummaries = summarizeMembers(snapshot) // structured data, not types
 
   const analysis = await this.deps.claude.evaluate(
@@ -429,7 +429,7 @@ Each connector adapter (Phase 8) normalizes its data into these types. PushPress
 
 ```typescript
 // Before: hardcoded event routing
-async handleEvent(gymId, context, event) {
+async handleEvent(accountId, context, event) {
   switch (event.type) {
     case 'customer.status.changed': return this._handleStatusChanged(...)
     case 'checkin.created': return  // ignored
@@ -438,8 +438,8 @@ async handleEvent(gymId, context, event) {
 }
 
 // After: AI evaluates event significance
-async handleEvent(gymId, context, event) {
-  const memories = await getMemoriesForPrompt(gymId)
+async handleEvent(accountId, context, event) {
+  const memories = await getMemoriesForPrompt(accountId)
   const skills = await loadAllSkills()
 
   const evaluation = await this.deps.claude.evaluate(
@@ -450,7 +450,7 @@ async handleEvent(gymId, context, event) {
   const decision = parseEventDecision(evaluation)
   if (decision.shouldAct) {
     await this._createInsightTask({
-      gymId,
+      accountId,
       insight: decision.insight,  // AI-generated, not hardcoded
     })
   }
@@ -517,7 +517,7 @@ Phase D: AI-driven events (depends on A + C)
 Phase C and D depend on the connector framework (Phase 8) and can wait.
 
 Phase E: Two-phase data loading (can run parallel with A + B)
-  ├── Rename GymSnapshot → AccountSnapshot
+  ├── AccountSnapshot interface defined (done)
   ├── Define DataNeed type + TaskContext interface
   ├── Build AccountDataLoader (PushPress implementation wraps ppGet)
   ├── Add dataNeeds field to InsightTask / DB tasks table
@@ -556,7 +556,7 @@ Before writing or merging any new code, verify against this list:
 - [ ] Creating a constant like `const COACH_VOICE = '...'` — belongs in a skill file or business memory
 
 **These are correct to hardcode:**
-- [x] Security: `gym_id` scoping, auth checks, encryption
+- [x] Security: `account_id` scoping, auth checks, encryption
 - [x] Safety rails: daily send limits, opt-out enforcement, escalation tripwires
 - [x] Infrastructure: command bus, retry logic, webhook handling, cron scheduling
 - [x] Attribution: "did they return within 14 days?" — needs a concrete, consistent definition

@@ -160,7 +160,7 @@ ALTER TABLE agent_tasks
 
 -- Index for the task executor cron
 CREATE INDEX IF NOT EXISTS idx_tasks_ready
-  ON agent_tasks (gym_id, status, created_at)
+  ON agent_tasks (account_id, status, created_at)
   WHERE status IN ('ready', 'waiting', 'dormant');
 
 -- Index for per-member rate limiting
@@ -776,7 +776,7 @@ export function getTaskTypeDef(taskType: string): TaskTypeDef {
 // lib/tasks/create-task.ts
 
 interface CreateTaskInput {
-  gymId: string
+  accountId: string
   taskType: string                // maps to TASK_TYPES registry
   triggerType: 'cron_analysis' | 'webhook' | 'manual' | 'gm_chat'
   triggerEventId?: string
@@ -800,12 +800,12 @@ interface CreateTaskInput {
 
 async function createTask(input: CreateTaskInput): Promise<AgentTask> {
   const typeDef = getTaskTypeDef(input.taskType)
-  const gym = await getGym(input.gymId)
+  const gym = await getAccount(input.accountId)
 
   // ── Step 1: Deduplication ──
   // Don't create a duplicate task for the same member + type if one is already active
   if (input.memberEmail) {
-    const existing = await findActiveTask(input.gymId, input.memberEmail, input.taskType)
+    const existing = await findActiveTask(input.accountId, input.memberEmail, input.taskType)
     if (existing) {
       // Update context with new data, don't create duplicate
       await updateTaskContext(existing.id, input.context)
@@ -824,7 +824,7 @@ async function createTask(input: CreateTaskInput): Promise<AgentTask> {
   const task = await supabaseAdmin
     .from('agent_tasks')
     .insert({
-      gym_id: input.gymId,
+      account_id: input.accountId,
       assigned_agent: typeDef.agent,
       task_type: input.taskType,
       member_email: input.memberEmail,
@@ -932,7 +932,7 @@ async function executeTask(task: AgentTask) {
   // ── Safety check: member rate limit ──
   if (task.member_email) {
     const recentCount = await countRecentMessages(task.member_email, 7)  // last 7 days
-    const gym = await getGym(task.gym_id)
+    const gym = await getAccount(task.account_id)
     if (recentCount >= (gym.member_weekly_limit ?? 3)) {
       // Don't send. Schedule retry for tomorrow.
       await updateTask(task.id, {
@@ -949,8 +949,8 @@ async function executeTask(task: AgentTask) {
   }
 
   // ── Safety check: daily gym send limit ──
-  const dailySent = await countGymMessagesToday(task.gym_id)
-  const gym = await getGym(task.gym_id)
+  const dailySent = await countGymMessagesToday(task.account_id)
+  const gym = await getAccount(task.account_id)
   if (dailySent >= (gym.daily_send_limit ?? 15)) {
     // Queue for tomorrow
     await updateTask(task.id, { next_action_at: tomorrow() })
@@ -959,7 +959,7 @@ async function executeTask(task: AgentTask) {
 
   // ── Execute: send first message ──
   const draftMessage = task.context?.draftMessage
-  const subject = task.context?.messageSubject ?? `Message from ${gym.gym_name}`
+  const subject = task.context?.messageSubject ?? `Message from ${gym.account_name}`
 
   if (!draftMessage || !task.member_email) {
     // Can't execute without a message/email — escalate
@@ -976,7 +976,7 @@ async function executeTask(task: AgentTask) {
     subject,
     body: draftMessage,
     taskId: task.id,
-    gymId: task.gym_id,
+    accountId: task.account_id,
     sentByAgent: task.assigned_agent,
   })
 
@@ -1237,7 +1237,7 @@ async function handleMemberReply(taskId: string, replyContent: string) {
       role: 'system',
       content: 'Member replied after task was cancelled. Notifying owner.',
     })
-    await notifyOwner(task.gym_id, 'late_reply', {
+    await notifyOwner(task.account_id, 'late_reply', {
       taskId,
       memberName: task.member_name,
       replyPreview: replyContent.slice(0, 200),
@@ -1396,7 +1396,7 @@ Before creating a task, check for an existing active task for the same member + 
 
 ```sql
 SELECT id FROM agent_tasks
-WHERE gym_id = $1
+WHERE account_id = $1
   AND member_email = $2
   AND task_type = $3
   AND status NOT IN ('completed', 'cancelled')
@@ -1479,8 +1479,8 @@ Enforced at the system level, not per-task:
 
 ```typescript
 // In the analysis cron
-async function runAnalysis(gymId: string) {
-  const insights = await analyzeMembers(gymId)  // might return 200 insights
+async function runAnalysis(accountId: string) {
+  const insights = await analyzeMembers(accountId)  // might return 200 insights
 
   // Sort by priority, take top N
   const toCreate = insights
@@ -1488,9 +1488,9 @@ async function runAnalysis(gymId: string) {
     .slice(0, FLOOD_LIMITS.maxTasksPerCronRun)
 
   // Additional check: active task count
-  const activeCount = await countActiveTasks(gymId)
+  const activeCount = await countActiveTasks(accountId)
   if (activeCount >= FLOOD_LIMITS.maxActiveTasksPerGym) {
-    await logEvent(gymId, 'flood_protection', {
+    await logEvent(accountId, 'flood_protection', {
       message: `Gym has ${activeCount} active tasks. Skipping new task creation.`,
       skippedInsights: insights.length,
     })
@@ -1498,17 +1498,17 @@ async function runAnalysis(gymId: string) {
   }
 
   // Daily creation check
-  const todayCount = await countTasksCreatedToday(gymId)
+  const todayCount = await countTasksCreatedToday(accountId)
   const remaining = FLOOD_LIMITS.maxTasksPerGymPerDay - todayCount
   if (remaining <= 0) {
-    await logEvent(gymId, 'flood_protection', {
+    await logEvent(accountId, 'flood_protection', {
       message: `Daily task creation limit reached (${FLOOD_LIMITS.maxTasksPerGymPerDay}).`,
     })
     return
   }
 
   for (const insight of toCreate.slice(0, remaining)) {
-    await createTask({ gymId, ...insight })
+    await createTask({ accountId, ...insight })
   }
 }
 ```
@@ -1586,11 +1586,11 @@ const AI_COST_LIMITS = {
 Enforced in the AI call wrapper:
 
 ```typescript
-async function callClaude(gymId: string, taskId: string, params: ClaudeParams) {
+async function callClaude(accountId: string, taskId: string, params: ClaudeParams) {
   // Per-gym daily check
-  const dailyCalls = await countAiCallsToday(gymId)
+  const dailyCalls = await countAiCallsToday(accountId)
   if (dailyCalls >= AI_COST_LIMITS.maxAiCallsPerGymPerDay) {
-    throw new AiLimitError(`Gym ${gymId} hit daily AI call limit (${dailyCalls})`)
+    throw new AiLimitError(`Gym ${accountId} hit daily AI call limit (${dailyCalls})`)
   }
 
   // Per-task lifetime check
@@ -1603,13 +1603,13 @@ async function callClaude(gymId: string, taskId: string, params: ClaudeParams) {
 
   // Warn at threshold
   if (dailyCalls >= AI_COST_LIMITS.maxAiCallsPerGymPerDay * AI_COST_LIMITS.warnThresholdPct / 100) {
-    await notifyOwner(gymId, 'ai_cost_warning', {
+    await notifyOwner(accountId, 'ai_cost_warning', {
       message: `AI usage at ${Math.round(dailyCalls / AI_COST_LIMITS.maxAiCallsPerGymPerDay * 100)}% of daily limit`,
     })
   }
 
   // Track the call
-  await logAiCall(gymId, taskId, params.model, params.inputTokens, params.outputTokens)
+  await logAiCall(accountId, taskId, params.model, params.inputTokens, params.outputTokens)
 
   return await anthropic.messages.create(params)
 }
@@ -1634,10 +1634,10 @@ Enforced in `createTask()`:
 
 ```typescript
 if (input.triggerType === 'agent_spawned') {
-  const agentCreatedToday = await countAgentCreatedTasksToday(input.gymId)
+  const agentCreatedToday = await countAgentCreatedTasksToday(input.accountId)
   if (agentCreatedToday >= AMPLIFICATION_LIMITS.maxAgentCreatedTasksPerGymPerDay) {
     // Log the suppressed task, don't create it
-    await logEvent(input.gymId, 'amplification_suppressed', {
+    await logEvent(input.accountId, 'amplification_suppressed', {
       taskType: input.taskType,
       memberEmail: input.memberEmail,
       reason: 'daily agent-created task limit reached',
@@ -1938,7 +1938,7 @@ if (event.type === 'checkin.created') {
   const checkinCount = await getCheckinCount(member.id)
   if ([10, 25, 50, 100].includes(checkinCount)) {
     await createTask({
-      gymId: gym.id,
+      accountId: gym.id,
       taskType: 'milestone_review',
       triggerType: 'webhook',
       memberEmail: member.email,
@@ -2889,17 +2889,17 @@ interface MemberTaskContext {
   suppressed: boolean              // opt-out (see §22)
 }
 
-async function getMemberTaskContext(memberEmail: string, gymId: string): Promise<MemberTaskContext> {
+async function getMemberTaskContext(memberEmail: string, accountId: string): Promise<MemberTaskContext> {
   const activeTasks = await supabaseAdmin
     .from('agent_tasks')
     .select('id, task_type, priority, status, last_activity_at, budget_messages_used')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .eq('member_email', memberEmail)
     .not('status', 'in', '("completed","cancelled")')
     .order('priority')
 
   const weeklyMessages = await countRecentMessages(memberEmail, 7)
-  const suppressed = await isMemberSuppressed(memberEmail, gymId)
+  const suppressed = await isMemberSuppressed(memberEmail, accountId)
 
   return { memberId, memberEmail, activeTasks, weeklyMessagesUsed: weeklyMessages, ... }
 }
@@ -2927,7 +2927,7 @@ Rules:
 ```typescript
 // In the task executor, before sending:
 async function canSendToMember(task: AgentTask): Promise<{ allowed: boolean; reason?: string; retryAt?: Date }> {
-  const ctx = await getMemberTaskContext(task.member_email, task.gym_id)
+  const ctx = await getMemberTaskContext(task.member_email, task.account_id)
 
   if (ctx.suppressed) {
     return { allowed: false, reason: 'member_opted_out' }
@@ -2992,7 +2992,7 @@ This is injected automatically by the executor. The agent doesn't need to query 
 ```sql
 CREATE TABLE member_suppressions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   member_email TEXT NOT NULL,
   member_id TEXT,
   reason TEXT NOT NULL,            -- 'member_request' | 'unsubscribe_link' | 'owner_override' | 'complaint'
@@ -3002,7 +3002,7 @@ CREATE TABLE member_suppressions (
   removed_at TIMESTAMPTZ,          -- null = active suppression
   removed_by TEXT,                 -- 'owner' | 'member_reactivation'
 
-  UNIQUE(gym_id, member_email) WHERE removed_at IS NULL  -- only one active suppression per member per gym
+  UNIQUE(account_id, member_email) WHERE removed_at IS NULL  -- only one active suppression per member per gym
 );
 ```
 
@@ -3034,7 +3034,7 @@ This runs BEFORE the AI evaluation. If detected:
 **2. Unsubscribe link in every email:**
 
 Every outbound email includes a one-click unsubscribe link (CAN-SPAM requirement). The link hits `/api/unsubscribe?token={jwt}` which:
-- Validates the token (contains memberEmail, gymId)
+- Validates the token (contains memberEmail, accountId)
 - Inserts into `member_suppressions`
 - Returns a simple "You've been unsubscribed" page
 - Cancels all active tasks for this member
@@ -3047,11 +3047,11 @@ The AI evaluation can also trigger suppression if the member's tone is clearly h
 
 ```typescript
 // Checked at the TOP of every outbound action, before anything else
-async function isMemberSuppressed(email: string, gymId: string): Promise<boolean> {
+async function isMemberSuppressed(email: string, accountId: string): Promise<boolean> {
   const { count } = await supabaseAdmin
     .from('member_suppressions')
     .select('id', { count: 'exact', head: true })
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .eq('member_email', email)
     .is('removed_at', null)
 
@@ -3138,17 +3138,17 @@ ${p.contactInfo ? `If the member needs to reach the gym: ${p.contactInfo.phone ?
 
 ### 23.3 Agent and Task Type Override Files (Optional)
 
-For gyms that want deeper customization, agent-specific instruction files can be stored in the `gym_agent_configs` table:
+For gyms that want deeper customization, agent-specific instruction files can be stored in the `account_agent_configs` table:
 
 ```sql
-CREATE TABLE gym_agent_configs (
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+CREATE TABLE account_agent_configs (
+  account_id UUID NOT NULL REFERENCES accounts(id),
   agent_type TEXT NOT NULL,        -- 'retention' | 'sales' | 'gm' | '*' (all agents)
   task_type TEXT,                   -- null = all task types for this agent
   prompt_override TEXT,             -- replaces the default system prompt entirely
   prompt_additions TEXT,            -- appended to the default system prompt
   context JSONB,                    -- additional context specific to this gym+agent combo
-  PRIMARY KEY (gym_id, agent_type, COALESCE(task_type, '*'))
+  PRIMARY KEY (account_id, agent_type, COALESCE(task_type, '*'))
 );
 ```
 
@@ -3158,11 +3158,11 @@ The prompt builder checks for overrides:
 function getEffectivePrompt(gym: Gym, typeDef: TaskTypeDef): string {
   // Check for task-type-specific override first, then agent-level, then default
   const override = gymAgentConfigs.find(c =>
-    c.gym_id === gym.id &&
+    c.account_id === gym.id &&
     c.agent_type === typeDef.agent &&
     c.task_type === typeDef.type
   ) ?? gymAgentConfigs.find(c =>
-    c.gym_id === gym.id &&
+    c.account_id === gym.id &&
     c.agent_type === typeDef.agent &&
     c.task_type === null
   )
@@ -3519,11 +3519,11 @@ When a new agent or task type is enabled on a gym that's already past the `full`
 
 ```sql
 CREATE TABLE agent_ramp_status (
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   agent_type TEXT NOT NULL,
   enabled_at TIMESTAMPTZ DEFAULT NOW(),
   ramp_phase TEXT DEFAULT 'shadow',
-  PRIMARY KEY (gym_id, agent_type)
+  PRIMARY KEY (account_id, agent_type)
 );
 ```
 
@@ -3616,7 +3616,7 @@ Once approved, the task follows the plan but still evaluates after each step. If
 CREATE TABLE task_feedback (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID NOT NULL REFERENCES agent_tasks(id),
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   feedback_type TEXT NOT NULL,     -- 'plan_edit' | 'outcome_rating' | 'message_edit' | 'instruction'
   rating INT,                      -- 1-5 stars, or thumbs up (5) / down (1)
   comment TEXT,                    -- owner's note
@@ -3661,7 +3661,7 @@ This is a future enhancement. For now, we collect the data and tune manually. Bu
 ```sql
 CREATE TABLE platform_metrics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID REFERENCES gyms(id),  -- null = platform-wide metric
+  account_id UUID REFERENCES accounts(id),  -- null = platform-wide metric
   metric_name TEXT NOT NULL,
   metric_value NUMERIC NOT NULL,
   period TEXT NOT NULL,              -- 'daily' | 'weekly' | 'monthly'
@@ -3669,7 +3669,7 @@ CREATE TABLE platform_metrics (
   metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
 
-  UNIQUE(gym_id, metric_name, period, period_start)
+  UNIQUE(account_id, metric_name, period, period_start)
 );
 ```
 
@@ -3885,7 +3885,7 @@ async function staleGuard(task: AgentTask): Promise<{ proceed: boolean; reason?:
       freshData.paymentStatus === 'current',
 
     // Member is now suppressed
-    suppressed: await isMemberSuppressed(task.member_email, task.gym_id),
+    suppressed: await isMemberSuppressed(task.member_email, task.account_id),
   }
 
   // Update task context with fresh data regardless
@@ -4157,7 +4157,7 @@ A recurring task is a **template** that spawns fresh task instances on a schedul
 ```sql
 CREATE TABLE recurring_task_templates (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   task_type TEXT NOT NULL,
   enabled BOOLEAN DEFAULT true,
   cron_expression TEXT NOT NULL,      -- '0 8 * * 1' = Mondays at 8am
@@ -4192,7 +4192,7 @@ async function triggerRecurringTemplates() {
     }
 
     await createTask({
-      gymId: template.gym_id,
+      accountId: template.account_id,
       taskType: template.task_type,
       triggerType: 'recurring',
       triggerEventId: template.id,
@@ -4398,15 +4398,15 @@ async function handleResendEvent(event: ResendEvent) {
     case 'email.bounced':
       // Hard bounce: suppress the member (bad email address)
       if (event.bounce_type === 'hard') {
-        await suppressMember(event.recipient, gymId, 'hard_bounce', 'resend_webhook')
+        await suppressMember(event.recipient, accountId, 'hard_bounce', 'resend_webhook')
       }
       // Soft bounce: log it, retry later. 3 soft bounces = treat as hard.
       break
 
     case 'email.complained':
       // Spam complaint: suppress immediately, notify us
-      await suppressMember(event.recipient, gymId, 'complaint', 'resend_webhook')
-      await alertPlatform('spam_complaint', { gymId, memberEmail: event.recipient })
+      await suppressMember(event.recipient, accountId, 'complaint', 'resend_webhook')
+      await alertPlatform('spam_complaint', { accountId, memberEmail: event.recipient })
       break
   }
 }
@@ -4687,7 +4687,7 @@ function buildSystemPrompt(gym: Gym, typeDef: TaskTypeDef, task: AgentTask): str
   // Layer 3: Gym context (from §23)
   layers.push(buildGymContextPrompt(gym))
 
-  // Layer 4: Gym-specific overrides (from §23.3 gym_agent_configs)
+  // Layer 4: Gym-specific overrides (from §23.3 account_agent_configs)
   const override = getGymPromptOverride(gym.id, typeDef.agent, typeDef.type)
   if (override) layers.push(override)
 
@@ -5027,7 +5027,7 @@ Owner overrides are logged in `task_feedback` (§27.4) so we can learn from disa
 3. **`lib/gym-profile.ts`** — Gym context builder. Contains:
    - `GymProfile` interface (from §23)
    - `buildGymContextPrompt(gym): string` — turns gym profile into prompt text
-   - `getGymPromptOverride(gymId, agent, taskType): string | null`
+   - `getGymPromptOverride(accountId, agent, taskType): string | null`
 
 **Files to modify:**
 
@@ -5082,7 +5082,7 @@ UPDATE agent_tasks SET status = 'completed' WHERE status = 'resolved';
 **New files:**
 
 1. **`lib/task-executor.ts`** — The new execution pipeline. Replaces `process-commands` cron for task work. Contains:
-   - `tickTasks(gymId?: string)` — main loop:
+   - `tickTasks(accountId?: string)` — main loop:
      - Query `ready` tasks → execute first touch
      - Query `waiting` tasks where `next_action_at` is past → execute follow-up (cadence-aware)
      - Query `dormant` tasks where `dormant_check_at` is past → check for outcome signals
@@ -5113,9 +5113,9 @@ UPDATE agent_tasks SET status = 'completed' WHERE status = 'resolved';
 3. **`app/api/cron/process-commands/route.ts`** — Keep for command bus processing. Add a call to `tickTasks()` or create a new cron route `/api/cron/tick-tasks`.
 
 4. **`lib/db/tasks.ts`** — Add:
-   - `getReadyTasks(gymId)` — tasks in `ready` state
-   - `getWaitingTasksDue(gymId)` — tasks in `waiting` where `next_action_at <= now`
-   - `getDormantTasksDue(gymId)` — tasks in `dormant` where `dormant_check_at <= now`
+   - `getReadyTasks(accountId)` — tasks in `ready` state
+   - `getWaitingTasksDue(accountId)` — tasks in `waiting` where `next_action_at <= now`
+   - `getDormantTasksDue(accountId)` — tasks in `dormant` where `dormant_check_at <= now`
    - `incrementBudgetUsed(taskId, field)` — atomic increment of budget counters
    - `transitionWithVersion(taskId, newStatus, expectedVersion)` — optimistic locking update
 
@@ -5146,9 +5146,9 @@ UPDATE agent_tasks SET status = 'completed' WHERE status = 'resolved';
    - Use `gym.avg_membership_price` (add column to `gyms` table, default 150)
    - If attribution window expired: set outcome based on task state
 
-2. **`lib/db/kpi.ts`** — Add `getMonthlyRetentionROI(gymId, month?)`:
+2. **`lib/db/kpi.ts`** — Add `getMonthlyRetentionROI(accountId, month?)`:
    - Tasks created, messages sent, members retained, revenue retained
-   - Query `agent_tasks` filtered by gym_id and created_at within month
+   - Query `agent_tasks` filtered by account_id and created_at within month
 
 3. **`app/api/retention/scorecard/route.ts`** — GET endpoint returning `getMonthlyRetentionROI()`.
 
@@ -5244,22 +5244,22 @@ ALTER TABLE gyms ADD COLUMN IF NOT EXISTS send_window_end INT DEFAULT 20;
 ```sql
 CREATE TABLE IF NOT EXISTS member_suppressions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID NOT NULL REFERENCES gyms(id),
+  account_id UUID NOT NULL REFERENCES accounts(id),
   member_email TEXT NOT NULL,
   suppression_type TEXT NOT NULL, -- 'all', 'agent_type:retention', 'task_type:churn_risk'
   reason TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   expires_at TIMESTAMPTZ, -- null = permanent
-  UNIQUE(gym_id, member_email, suppression_type)
+  UNIQUE(account_id, member_email, suppression_type)
 );
 ```
 
 **New files:**
 
 1. **`lib/member-coordinator.ts`** — Contains:
-   - `canMessageMember(gymId, email)` — checks suppression table + weekly message count
-   - `checkSuppression(gymId, email)` — returns suppression record if active
-   - `addSuppression(gymId, email, type, reason)` — inserts suppression
+   - `canMessageMember(accountId, email)` — checks suppression table + weekly message count
+   - `checkSuppression(accountId, email)` — returns suppression record if active
+   - `addSuppression(accountId, email, type, reason)` — inserts suppression
    - `detectOptOut(replyText)` — keyword + AI detection for opt-out intent
 
 **Files to modify:**

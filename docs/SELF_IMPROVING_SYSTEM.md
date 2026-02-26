@@ -100,7 +100,7 @@ The transition doesn't happen all at once. It happens task by task, business by 
 
 These do not change:
 
-- **Security** — `gym_id` scoping, auth, encryption, RLS policies
+- **Security** — `account_id` scoping, auth, encryption, RLS policies
 - **Reliability** — command bus, retry logic, idempotency, audit logging
 - **Safety rails** — daily send limits, escalation triggers, opt-out enforcement, shadow mode
 - **Attribution** — "did they come back?" needs a concrete definition to measure ROI; this can't be vague
@@ -135,7 +135,7 @@ Designed to be domain-agnostic. No gym-specific fields.
 -- Not typed to gym concepts — works for any vertical
 CREATE TABLE business_memories (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id          uuid NOT NULL REFERENCES gyms(id),  -- 'gym' today; 'business' at abstraction
+  account_id          uuid NOT NULL REFERENCES accounts(id),
   content         text NOT NULL,         -- freeform: the AI writes this, the AI reads this
   category_hint   text,                  -- soft label: 'preference' | 'context' | 'pattern'
                                          -- AI-generated, not enforced — informational only
@@ -151,7 +151,7 @@ CREATE TABLE business_memories (
 -- The type field is AI-generated, not an enforced enum
 CREATE TABLE improvement_suggestions (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id           uuid REFERENCES gyms(id),  -- null = cross-business
+  account_id           uuid REFERENCES accounts(id),  -- null = cross-business
   suggestion_type  text NOT NULL,   -- AI chooses: 'memory' | 'prompt_update' | 'calibration' |
                                     -- 'new_skill' | 'timing_pattern' — open set, not enum
   title            text NOT NULL,
@@ -172,7 +172,7 @@ CREATE TABLE improvement_suggestions (
 -- No gym-specific fields — works for any business/member/interaction type
 CREATE TABLE interaction_outcomes (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id           uuid NOT NULL REFERENCES gyms(id),
+  account_id           uuid NOT NULL REFERENCES accounts(id),
   task_id          uuid NOT NULL REFERENCES agent_tasks(id),
   interaction_type text NOT NULL,     -- AI-generated description, not hardcoded type
   context_summary  text,              -- AI-authored summary of the situation
@@ -242,17 +242,17 @@ Runs across all connected businesses. Anonymized — no PII, only structural pat
 When the agent drafts a message or runs an analysis, it assembles the full context for this business:
 
 ```typescript
-async function buildAgentContext(gymId: string, situation: string): Promise<string> {
+async function buildAgentContext(accountId: string, situation: string): Promise<string> {
   // 1. Relevant skill files (capability descriptions)
   const skills = await loadRelevantSkills(situation)
 
   // 2. Active business memories (freeform, AI-authored)
-  const memories = await getActiveMemories(gymId)
+  const memories = await getActiveMemories(accountId)
   // Injected as-is — the AI wrote them for the AI to read
   const memoryBlock = memories.map(m => m.content).join('\n')
 
   // 3. Connector context (what data is available and what it means for this business)
-  const connectorContext = await getConnectorContext(gymId)
+  const connectorContext = await getConnectorContext(accountId)
 
   // No hardcoded gym logic here — the AI reasons from skills + memories + data
   return assembleContext(skills, memoryBlock, connectorContext)
