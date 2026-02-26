@@ -133,24 +133,26 @@ describe('automation level routing', () => {
 })
 
 // ── replyToken format ────────────────────────────────────────────────────────
+// Reply tokens are now task UUIDs — the token IS the agent_task.id.
 
-describe('replyToken', () => {
-  it('tokens are unique across sends', () => {
-    const makeToken = () => `d${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
-    const tokens = Array.from({ length: 100 }, makeToken)
+describe('replyToken (task UUID format)', () => {
+  it('task UUIDs are unique across sends', () => {
+    const tokens = Array.from({ length: 100 }, () => crypto.randomUUID())
     const unique = new Set(tokens)
     expect(unique.size).toBe(100)
   })
 
-  it('token is URL-safe (no special chars)', () => {
-    const token = `d${'a'.repeat(20)}`
-    expect(token).toMatch(/^[a-zA-Z0-9]+$/)
+  it('UUID is URL-safe in reply-to address', () => {
+    const taskId = crypto.randomUUID()
+    const replyTo = `reply+${taskId}@lunovoria.resend.app`
+    // UUID chars are all safe in email local-part
+    expect(replyTo).toMatch(/^reply\+[a-f0-9-]+@lunovoria\.resend\.app$/)
   })
 
-  it('workflow tokens follow wf prefix pattern', () => {
-    const runId = '550e8400-e29b-41d4-a716-446655440000'
-    const stepId = 'step_email_1'
-    const token = `wf${runId.replace(/-/g, '').slice(0, 16)}_${stepId}`
-    expect(token).toMatch(/^wf[a-f0-9]{16}_step_/)
+  it('UUID can be extracted from reply-to address', () => {
+    const taskId = crypto.randomUUID()
+    const replyTo = `reply+${taskId}@lunovoria.resend.app`
+    const match = replyTo.match(/reply\+([a-zA-Z0-9_-]+)@/)
+    expect(match?.[1]).toBe(taskId)
   })
 })
