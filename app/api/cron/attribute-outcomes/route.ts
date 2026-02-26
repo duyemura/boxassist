@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { decrypt } from '@/lib/encrypt'
+import { ppGet } from '@/lib/pushpress-platform'
+import type { PPCheckin } from '@/lib/pushpress-platform'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,16 +49,24 @@ export async function GET(req: NextRequest) {
     const windowExpired = Date.now() - taskCreatedAt.getTime() > 14 * 24 * 60 * 60 * 1000
 
     try {
-      // Check if member checked in since task was created
-      const checkinRes = await fetch(
-        `https://api.pushpress.com/v3/checkins?company_id=${gym.pushpress_company_id}&client_id=${task.member_id ?? ''}&after=${task.created_at}&limit=1`,
-        { headers: { 'API-KEY': gym.pushpress_api_key } }
-      )
-      const checkins = await checkinRes.json()
+      // Check if member checked in since task was created via Platform API v1
+      let apiKey: string
+      try {
+        apiKey = decrypt(gym.pushpress_api_key)
+      } catch {
+        console.error(`[attribute-outcomes] Could not decrypt API key for task ${task.id}`)
+        continue
+      }
 
-      const hasCheckin =
-        (checkins?.data?.length > 0) ||
-        (Array.isArray(checkins) && checkins.length > 0)
+      const createdAtSec = Math.floor(taskCreatedAt.getTime() / 1000)
+      const nowSec = Math.floor(Date.now() / 1000)
+      const checkins = await ppGet<PPCheckin>(
+        apiKey,
+        '/checkins',
+        { startTimestamp: String(createdAtSec), endTimestamp: String(nowSec) },
+        gym.pushpress_company_id,
+      )
+      const hasCheckin = checkins.some(c => c.customer === task.member_id)
 
       if (hasCheckin) {
         const membershipValue = gym.avg_membership_price ?? 150

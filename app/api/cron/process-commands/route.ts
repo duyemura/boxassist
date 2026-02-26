@@ -109,7 +109,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const todayCount = await getAutopilotSendCountToday(task.gym_id)
       if (todayCount >= DAILY_AUTOPILOT_LIMIT) {
         console.log(`[process-commands] Autopilot daily limit (${DAILY_AUTOPILOT_LIMIT}) reached for gym ${task.gym_id}`)
-        continue
+        break
       }
 
       try {

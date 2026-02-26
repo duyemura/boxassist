@@ -246,7 +246,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       // Decrypt PushPress API key
       let apiKey: string
       try {
-        apiKey = decrypt(gym.pushpress_api_key)
+        apiKey = decrypt(account.pushpress_api_key)
       } catch (err) {
         console.error(`[run-analysis] Could not decrypt API key for gym ${account.id}:`, err)
         continue
@@ -257,10 +257,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       try {
         snapshot = await buildAccountSnapshot(
           account.id,
-          gym.account_name ?? 'Gym',
+          account.gym_name ?? 'Gym',
           apiKey,
-          gym.pushpress_company_id ?? undefined,
-          gym.avg_membership_price ?? undefined,
+          account.pushpress_company_id ?? undefined,
+          account.avg_membership_price ?? undefined,
         )
       } catch (err) {
         console.error(`[run-analysis] PushPress fetch failed for gym ${account.id}:`, err)
@@ -305,7 +305,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       if (result.insights.length > 0) {
         generateAnalysisArtifact(
           account.id,
-          gym.account_name ?? 'Your Gym',
+          account.gym_name ?? 'Your Gym',
           result,
           snapshot,
         ).catch(err => {

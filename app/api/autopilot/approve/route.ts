@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
+    // Prevent duplicate sends — if autopilot already processed this task, reject
+    if (task.status !== 'open' && task.status !== 'awaiting_approval') {
+      return NextResponse.json({
+        error: 'Task already processed',
+        currentStatus: task.status,
+      }, { status: 409 })
+    }
+
     // Mark as approved
     await updateTaskStatus(actionId, 'awaiting_reply', {
       outcomeReason: editedMessage ? 'Approved by owner (edited)' : 'Approved by owner',

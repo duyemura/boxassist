@@ -1,13 +1,15 @@
 /**
  * attribute-outcomes.test.ts
  *
- * Tests for POST /api/cron/attribute-outcomes.
+ * Tests for GET /api/cron/attribute-outcomes.
  * Verifies:
  *   - Auth: rejects requests without valid CRON_SECRET
- *   - Happy path: attributes 'engaged' when PushPress returns a checkin
+ *   - Happy path: attributes 'engaged' when ppGet returns a matching checkin
+ *   - Filters checkins by c.customer === task.member_id
  *   - Expiry: sets 'unresponsive' when 14-day window expires with no checkin
  *   - Skips tasks without pushpress_api_key
  *   - Handles PushPress API errors gracefully
+ *   - Decrypts API key before calling ppGet
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -62,9 +64,16 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 
-// Mock global fetch for PushPress checkins API
-const mockFetch = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
+// Mock decrypt — returns the input for test simplicity
+vi.mock('@/lib/encrypt', () => ({
+  decrypt: vi.fn((val: string) => `decrypted-${val}`),
+}))
+
+// Mock ppGet — the Platform API v1 client
+const mockPpGet = vi.fn()
+vi.mock('@/lib/pushpress-platform', () => ({
+  ppGet: (...args: any[]) => mockPpGet(...args),
+}))
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -102,7 +111,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
     vi.clearAllMocks()
     mockTasks = []
     mockUpdateCalls = []
-    mockFetch.mockReset()
+    mockPpGet.mockReset()
     const mod = await import('@/app/api/cron/attribute-outcomes/route')
     handler = mod.GET
   })
@@ -128,15 +137,14 @@ describe('GET /api/cron/attribute-outcomes', () => {
     expect(body.expired).toBe(0)
   })
 
-  it('attributes "engaged" when PushPress returns a checkin', async () => {
+  it('attributes "engaged" when ppGet returns a matching checkin', async () => {
     const task = makeTaskWithGym()
     mockTasks = [task]
 
-    // PushPress returns a checkin
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [{ id: 'checkin-1', timestamp: new Date().toISOString() }] }),
-    })
+    // ppGet returns checkins — one matches the task's member_id
+    mockPpGet.mockResolvedValue([
+      { id: 'checkin-1', customer: 'member-001', timestamp: Date.now() },
+    ])
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
@@ -146,17 +154,45 @@ describe('GET /api/cron/attribute-outcomes', () => {
     expect(body.expired).toBe(0)
   })
 
+  it('calls ppGet with correct Platform v1 params', async () => {
+    const task = makeTaskWithGym()
+    mockTasks = [task]
+    mockPpGet.mockResolvedValue([])
+
+    await handler(makeRequest('test-cron-secret'))
+
+    expect(mockPpGet).toHaveBeenCalledTimes(1)
+    const [apiKey, path, params, companyId] = mockPpGet.mock.calls[0]
+    expect(apiKey).toBe('decrypted-pp-key-123')
+    expect(path).toBe('/checkins')
+    expect(params.startTimestamp).toBeDefined()
+    expect(params.endTimestamp).toBeDefined()
+    expect(companyId).toBe('company-001')
+  })
+
+  it('filters checkins by c.customer === task.member_id', async () => {
+    const task = makeTaskWithGym({ member_id: 'member-001' })
+    mockTasks = [task]
+
+    // ppGet returns checkins for a DIFFERENT member — should NOT attribute
+    mockPpGet.mockResolvedValue([
+      { id: 'checkin-1', customer: 'member-OTHER', timestamp: Date.now() },
+    ])
+
+    const res = await handler(makeRequest('test-cron-secret'))
+    const body = await res.json()
+
+    expect(body.attributed).toBe(0)
+  })
+
   it('marks "unresponsive" when 14-day window expires with no checkin', async () => {
     const task = makeTaskWithGym({
       created_at: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
     })
     mockTasks = [task]
 
-    // PushPress returns no checkins
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [] }),
-    })
+    // No matching checkins
+    mockPpGet.mockResolvedValue([])
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
@@ -175,23 +211,21 @@ describe('GET /api/cron/attribute-outcomes', () => {
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
 
-    // Should report checked but not attributed or expired (skipped)
     expect(body.checked).toBe(1)
     expect(body.attributed).toBe(0)
     expect(body.expired).toBe(0)
-    expect(mockFetch).not.toHaveBeenCalled()
+    expect(mockPpGet).not.toHaveBeenCalled()
   })
 
   it('handles PushPress API error gracefully without crashing', async () => {
     const task = makeTaskWithGym()
     mockTasks = [task]
 
-    mockFetch.mockRejectedValue(new Error('Network timeout'))
+    mockPpGet.mockRejectedValue(new Error('Network timeout'))
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
 
-    // Should not crash — task just doesn't get attributed
     expect(res.status).toBe(200)
     expect(body.checked).toBe(1)
     expect(body.attributed).toBe(0)
@@ -203,11 +237,8 @@ describe('GET /api/cron/attribute-outcomes', () => {
     })
     mockTasks = [task]
 
-    // No checkins
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [] }),
-    })
+    // No matching checkins
+    mockPpGet.mockResolvedValue([])
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
@@ -223,17 +254,17 @@ describe('GET /api/cron/attribute-outcomes', () => {
     })
     mockTasks = [task]
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [{ id: 'checkin-1' }] }),
-    })
+    mockPpGet.mockResolvedValue([
+      { id: 'checkin-1', customer: 'member-001', timestamp: Date.now() },
+    ])
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
 
     expect(body.attributed).toBe(1)
-    // The actual value written to DB is verified via the mock chain
-    // (update call includes attributed_value: 225)
+    // Verify the update call used the correct price
+    const engagedUpdate = mockUpdateCalls.find(c => c.update.outcome === 'engaged')
+    expect(engagedUpdate?.update.attributed_value).toBe(225)
   })
 
   it('defaults to $150 when gym has no avg_membership_price', async () => {
@@ -242,14 +273,15 @@ describe('GET /api/cron/attribute-outcomes', () => {
     })
     mockTasks = [task]
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [{ id: 'checkin-1' }] }),
-    })
+    mockPpGet.mockResolvedValue([
+      { id: 'checkin-1', customer: 'member-001', timestamp: Date.now() },
+    ])
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
 
     expect(body.attributed).toBe(1)
+    const engagedUpdate = mockUpdateCalls.find(c => c.update.outcome === 'engaged')
+    expect(engagedUpdate?.update.attributed_value).toBe(150)
   })
 })

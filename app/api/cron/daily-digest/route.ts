@@ -94,7 +94,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           </a>
 
           <p style="font-size: 11px; color: #9CA3AF; margin-top: 32px;">
-            You're receiving this because you have GymAgents connected to ${gym.account_name ?? 'your gym'}.
+            You're receiving this because you have GymAgents connected to ${account.account_name ?? 'your gym'}.
           </p>
         </div>`,
       })
