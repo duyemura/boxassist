@@ -174,6 +174,31 @@ export interface AgentOutput {
   _usage?: { input_tokens: number; output_tokens: number }
 }
 
+/**
+ * Repair common JSON issues from LLM output.
+ * The most frequent problem: literal newlines inside JSON string values.
+ * This walks the string character-by-character and escapes control characters
+ * that appear inside quoted strings.
+ */
+function repairJSON(raw: string): string {
+  let inString = false
+  let result = ''
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i]
+    const prev = raw[i - 1]
+    if (char === '"' && prev !== '\\') {
+      inString = !inString
+    }
+    if (inString) {
+      if (char === '\n') { result += '\\n'; continue }
+      if (char === '\r') { result += '\\r'; continue }
+      if (char === '\t') { result += '\\t'; continue }
+    }
+    result += char
+  }
+  return result
+}
+
 export async function runAtRiskDetector(
   gymName: string,
   members: AtRiskMember[],
@@ -181,11 +206,12 @@ export async function runAtRiskDetector(
 ): Promise<AgentOutput> {
   const membersToAnalyze = tier === 'free' ? members.slice(0, 5) : members
 
-  const systemPrompt = `You are the autopilot assistant for ${gymName}, a boutique fitness gym. 
+  const systemPrompt = `You are the autopilot assistant for ${gymName}, a boutique fitness gym.
 You analyze member check-in patterns to identify members who are at risk of canceling their membership.
 You speak directly to the gym owner in a warm, knowledgeable way — like a trusted advisor who knows their gym.
 NEVER use the word "agent" or "AI". You are "the autopilot" or "your assistant."
-You must output valid JSON only. No markdown, no prose outside the JSON.`
+You must output valid JSON only. No markdown, no prose outside the JSON.
+IMPORTANT: In JSON string values, use \\n for line breaks — never include literal newlines inside a JSON string.`
 
   const userPrompt = `Your autopilot scanned ${gymName}'s check-in data and found ${membersToAnalyze.length} members who may be at risk.
 
@@ -231,7 +257,7 @@ Output this exact JSON structure:
 
   const response = await anthropic.messages.create({
     model: SONNET,
-    max_tokens: 4000,
+    max_tokens: 8000,
     messages: [{ role: 'user', content: userPrompt }],
     system: systemPrompt
   })
@@ -243,7 +269,17 @@ Output this exact JSON structure:
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('No JSON found in response')
 
-  const parsed = JSON.parse(jsonMatch[0]) as AgentOutput
+  let parsed: AgentOutput
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as AgentOutput
+  } catch {
+    // Claude sometimes includes literal newlines inside JSON strings — repair and retry
+    try {
+      parsed = JSON.parse(repairJSON(jsonMatch[0])) as AgentOutput
+    } catch (err2) {
+      throw new Error(`Failed to parse agent response: ${(err2 as Error).message}`)
+    }
+  }
   // Attach token usage for cost tracking
   parsed._usage = {
     input_tokens: response.usage.input_tokens,

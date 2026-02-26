@@ -10,43 +10,49 @@ interface Agent {
   skill_type?: string
 }
 
-type NavSection = 'agents' | 'members' | 'skills' | 'connectors' | 'settings'
+type NavSection = 'gm' | 'settings'
 
 interface AppShellProps {
   isDemo: boolean
   isSandboxDemo: boolean
-  isPreviewMode?: boolean   // authenticated user without a gym (PLG)
+  isPreviewMode?: boolean
   gymName: string
-  agents: Agent[]
-  selectedAgentId: string | null
-  onSelectAgent: (id: string) => void
-  children: React.ReactNode       // center content
-  rightPanel: React.ReactNode
-  statsBar?: React.ReactNode      // spans center + right, sits above both
-  slidePanel?: React.ReactNode    // null = closed
+  children: React.ReactNode
+  slidePanel?: React.ReactNode
   onSlidePanelClose: () => void
-  mobileTab: 'agents' | 'attention' | 'settings'
-  onMobileTabChange: (tab: 'agents' | 'attention' | 'settings') => void
+  mobileTab: 'queue' | 'chat' | 'settings'
+  onMobileTabChange: (tab: 'queue' | 'chat' | 'settings') => void
   activeSection?: NavSection
   onSectionChange?: (section: NavSection) => void
+  // legacy — kept so callers don't need immediate updates, ignored in render
+  agents?: Agent[]
+  selectedAgentId?: string | null
+  onSelectAgent?: (id: string) => void
+  rightPanel?: React.ReactNode
+  statsBar?: React.ReactNode
 }
 
-const NAV_ITEMS: { id: NavSection; label: string; icon: React.ReactNode; href?: string }[] = [
+type NavItem = { id: NavSection; label: string; icon: React.ReactNode; href?: string }
+
+/**
+ * NAV_AGENTS — one entry per built agent.
+ * Pattern: add a new entry here when a new agent ships.
+ * Each entry is a NavSection that renders an AgentPageLayout in the main content.
+ */
+const NAV_AGENTS: NavItem[] = [
   {
-    id: 'agents',
-    label: 'Dashboard',
+    id: 'gm',
+    label: 'GM Agent',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="6" height="6" rx="1" fill="currentColor" opacity=".9"/><rect x="11" y="3" width="6" height="6" rx="1" fill="currentColor" opacity=".4"/><rect x="3" y="11" width="6" height="6" rx="1" fill="currentColor" opacity=".4"/><rect x="11" y="11" width="6" height="6" rx="1" fill="currentColor" opacity=".2"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.5" opacity=".9"/><path d="M3.5 17c0-3.59 2.91-6.5 6.5-6.5s6.5 2.91 6.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".4"/></svg>
     ),
   },
-  {
-    id: 'members',
-    label: 'Members',
-    href: '/dashboard/members',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3.5" fill="currentColor" opacity=".8"/><path d="M4 16.5C4 13.5 6.5 11.5 10 11.5s6 2 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".6"/></svg>
-    ),
-  },
+  // Future agents appear here — each uses AgentPageLayout
+  // { id: 'sales', label: 'Sales Agent', icon: ... },
+  // { id: 'winback', label: 'Win-Back Agent', icon: ... },
+]
+
+const NAV_BOTTOM: NavItem[] = [
   {
     id: 'settings',
     label: 'Settings',
@@ -56,36 +62,34 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ReactNode; href?: 
   },
 ]
 
-// Extra nav links (non-section, full page)
-const EXTRA_NAV_LINKS = [
-  {
-    label: 'Threads',
-    href: '/threads',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        <path d="M3 5h14M3 10h10M3 15h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".7"/>
-        <circle cx="16" cy="15" r="2.5" fill="currentColor" opacity=".5"/>
-      </svg>
-    ),
-  },
-]
+function NavButton({ item, isActive, onSectionChange }: {
+  item: NavItem
+  isActive: boolean
+  onSectionChange?: (s: NavSection) => void
+}) {
+  const cls = 'flex items-center gap-3 px-3 mx-2 py-2.5 w-[calc(100%-16px)] text-left transition-colors hover:bg-white/5'
+  const style = isActive ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 } : { borderRadius: 4 }
+  const inner = (
+    <>
+      <span className="flex-shrink-0" style={{ color: isActive ? '#ffffff' : '#6B7280' }}>{item.icon}</span>
+      <span className="text-sm font-medium" style={{ color: isActive ? '#ffffff' : '#6B7280' }}>{item.label}</span>
+    </>
+  )
+  if (item.href) return <Link href={item.href} className={cls} style={style}>{inner}</Link>
+  return <button onClick={() => onSectionChange?.(item.id)} className={cls} style={style}>{inner}</button>
+}
 
 export default function AppShell({
   isDemo,
   isSandboxDemo,
   isPreviewMode = false,
   gymName,
-  agents,
-  selectedAgentId,
-  onSelectAgent,
   children,
-  rightPanel,
-  statsBar,
   slidePanel,
   onSlidePanelClose,
   mobileTab,
   onMobileTabChange,
-  activeSection = 'agents',
+  activeSection = 'gm',
   onSectionChange,
 }: AppShellProps) {
   const router = useRouter()
@@ -165,96 +169,33 @@ export default function AppShell({
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
 
         {/* Left nav — desktop only — dark sidebar */}
-        <nav data-testid="desktop-nav" className="hidden md:flex flex-col w-48 flex-shrink-0 py-3" style={{ backgroundColor: '#111827' }}>
-          {NAV_ITEMS.map(item => {
-            const isActive = activeSection === item.id
-            const inner = (
-              <>
-                <span className="flex-shrink-0" style={{ color: isActive ? '#ffffff' : '#6B7280' }}>
-                  {item.icon}
-                </span>
-                <span className="text-sm font-medium" style={{ color: isActive ? '#ffffff' : '#6B7280' }}>
-                  {item.label}
-                </span>
-              </>
-            )
-            const cls = `flex items-center gap-3 px-3 mx-2 py-2.5 w-[calc(100%-16px)] text-left transition-colors`
-            const style = isActive
-              ? { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 4 }
-              : undefined
-            const hoverCls = `hover:bg-white/5`
+        <nav data-testid="desktop-nav" className="hidden md:flex flex-col w-44 flex-shrink-0 py-3" style={{ backgroundColor: '#111827' }}>
 
-            if (item.href) {
-              return (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  className={`${cls} ${hoverCls}`}
-                  style={style}
-                >
-                  {inner}
-                </Link>
-              )
-            }
+          {/* Agents — one item per agent, using AgentPageLayout */}
+          <div className="mx-4 mt-2 mb-1">
+            <p className="text-[9px] font-bold tracking-widest uppercase" style={{ color: '#374151' }}>Agents</p>
+          </div>
+          {NAV_AGENTS.map(item => (
+            <NavButton key={item.id} item={item} isActive={activeSection === item.id} onSectionChange={onSectionChange as any} />
+          ))}
 
-            return (
-              <button
-                key={item.id}
-                onClick={() => onSectionChange?.(item.id)}
-                className={`${cls} ${hoverCls}`}
-                style={style}
-              >
-                {inner}
-              </button>
-            )
-          })}
-
-          {/* Divider + extra links */}
-          <div className="mx-4 my-2 border-t border-white/10" />
-          {EXTRA_NAV_LINKS.map(link => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="flex items-center gap-3 px-3 mx-2 py-2.5 w-[calc(100%-16px)] hover:bg-white/5 transition-colors"
-              style={{ borderRadius: 4 }}
-            >
-              <span className="flex-shrink-0" style={{ color: '#6B7280' }}>{link.icon}</span>
-              <span className="text-sm font-medium" style={{ color: '#6B7280' }}>{link.label}</span>
-            </Link>
+          {/* Bottom: Settings */}
+          <div className="flex-1" />
+          <div className="mx-4 mb-2 border-t border-white/10" />
+          {NAV_BOTTOM.map(item => (
+            <NavButton key={item.id} item={item} isActive={activeSection === item.id} onSectionChange={onSectionChange as any} />
           ))}
         </nav>
 
-        {/* Center + Right — stacked vertically so statsBar spans both */}
-        <div className="flex flex-1 min-w-0 flex-col min-h-0 overflow-hidden">
-          {/* Stats bar — spans full width of center+right */}
-          {statsBar && (
-            <div className="hidden md:block flex-shrink-0">
-              {statsBar}
-            </div>
-          )}
-
-          {/* Center + Right row */}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* Center column — light bg, clear contrast from dark nav */}
-        <main className="flex-1 min-w-0 overflow-y-auto" style={{ backgroundColor: '#F8F9FB' }}>
-          {/* Mobile: show either agent list (children) or attention tab */}
-          <div className="md:hidden">
+        {/* Main content area — children own the full layout (AgentPageLayout handles the split) */}
+        <div className="flex flex-1 min-w-0 flex-col min-h-0 overflow-hidden relative">
+          <main className="flex-1 min-h-0 overflow-hidden" style={{ backgroundColor: '#F8F9FB' }}>
             {children}
-          </div>
-          {/* Desktop: always show center */}
-          <div className="hidden md:block h-full overflow-y-auto">
-            {children}
-          </div>
-        </main>
+          </main>
 
-        {/* Right panel — desktop only */}
-        <aside className="hidden md:flex flex-col w-96 border-l border-gray-100 bg-white overflow-y-auto flex-shrink-0 relative">
-          {rightPanel}
-
-          {/* Slide panel — overlays right panel on desktop */}
+          {/* Slide panel — overlays main content on desktop */}
           {slidePanel && (
-            <div className="absolute inset-0 bg-white z-10 overflow-y-auto flex flex-col">
+            <div className="hidden md:flex absolute inset-0 bg-white z-10 flex-col">
               <div className="h-12 border-b border-gray-100 flex items-center px-4 flex-shrink-0">
                 <button
                   onClick={onSlidePanelClose}
@@ -268,10 +209,7 @@ export default function AppShell({
               </div>
             </div>
           )}
-        </aside>
-
-          </div>{/* end center+right row */}
-        </div>{/* end center+right column */}
+        </div>
 
         {/* Mobile slide panel — full screen */}
         {slidePanel && (
@@ -294,20 +232,20 @@ export default function AppShell({
       {/* Bottom tab bar — mobile only */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 z-20 flex flex-shrink-0">
         <button
-          onClick={() => onMobileTabChange('agents')}
+          onClick={() => onMobileTabChange('queue')}
           className={`flex-1 py-3 text-xs text-center transition-colors ${
-            mobileTab === 'agents' ? 'text-gray-900 font-medium' : 'text-gray-400'
+            mobileTab === 'queue' ? 'text-gray-900 font-medium' : 'text-gray-400'
           }`}
         >
-          Agents
+          Review
         </button>
         <button
-          onClick={() => onMobileTabChange('attention')}
+          onClick={() => onMobileTabChange('chat')}
           className={`flex-1 py-3 text-xs text-center transition-colors ${
-            mobileTab === 'attention' ? 'text-gray-900 font-medium' : 'text-gray-400'
+            mobileTab === 'chat' ? 'text-gray-900 font-medium' : 'text-gray-400'
           }`}
         >
-          Attention
+          GM Chat
         </button>
         <button
           onClick={() => {

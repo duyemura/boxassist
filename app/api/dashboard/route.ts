@@ -158,12 +158,14 @@ export async function GET(req: NextRequest) {
       pendingActions = tasks.map((t: {
         id: string
         status: string
+        assigned_agent?: string
+        task_type?: string
+        goal?: string
+        priority?: string
         context?: Record<string, unknown>
         member_name?: string
         member_email?: string
         member_id?: string
-        task_type?: string
-        goal?: string
         insight_member_name?: string
         insight_member_email?: string
         insight_member_id?: string
@@ -181,6 +183,10 @@ export async function GET(req: NextRequest) {
         const ctx = (t.context ?? {}) as Record<string, unknown>
         return {
           id: t.id,
+          assignedAgent: t.assigned_agent ?? 'gm',
+          taskType: t.task_type ?? 'ad_hoc',
+          goal: t.goal ?? '',
+          priority: (t.priority ?? ctx.priority ?? 'medium') as 'critical' | 'high' | 'medium' | 'low',
           approved: null,
           dismissed: null,
           content: {

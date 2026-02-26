@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AppShell from './AppShell'
 
-type NavSection = 'agents' | 'members' | 'skills' | 'connectors' | 'settings'
+type NavSection = 'agents' | 'members' | 'gm' | 'retention' | 'skills' | 'connectors' | 'settings'
 
 interface DashboardShellProps {
   children: React.ReactNode

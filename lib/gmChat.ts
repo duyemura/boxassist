@@ -10,7 +10,7 @@ import { SONNET, HAIKU } from './models'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type TaskRoute = 'direct_answer' | 'inline_query' | 'prebuilt_specialist' | 'dynamic_specialist'
+export type TaskRoute = 'direct_answer' | 'inline_query' | 'prebuilt_specialist' | 'dynamic_specialist' | 'create_task'
 
 export type ActionType = 'answer' | 'data_table' | 'recommendation' | 'task_created' | 'clarify'
 
@@ -76,6 +76,7 @@ const VALID_ROUTES = new Set<TaskRoute>([
   'inline_query',
   'prebuilt_specialist',
   'dynamic_specialist',
+  'create_task',
 ])
 
 export async function classifyTask(message: string): Promise<TaskRoute> {
@@ -86,6 +87,7 @@ export async function classifyTask(message: string): Promise<TaskRoute> {
 - inline_query: needs one PushPress data fetch (members, checkins, enrollments, waivers)
 - prebuilt_specialist: complex analysis — churn, revenue trends, lead funnel
 - dynamic_specialist: novel task that doesn't fit above categories
+- create_task: owner wants to create a task, set up a monitor, track something, or assign work to an agent
 
 Request: "${message}"
 
@@ -138,4 +140,21 @@ export function buildGymSystemPrompt(gymContext: GymContext): string {
 You are a trusted advisor to the gym owner. Be direct, practical, and warm — like a knowledgeable colleague who knows the business.
 Never use the word "AI" or "agent". Speak as if you know this gym personally.
 Keep responses concise. If you need data you don't have, say what you'd look for.`
+}
+
+// ── buildGMSystemPromptWithAgents ─────────────────────────────────────────────
+// Enhanced system prompt that includes sub-agent capability context.
+// subAgentContext is loaded from .agents/agents/*.md files (server-side only).
+
+export function buildGMSystemPromptWithAgents(
+  gymContext: GymContext,
+  subAgentContext: string,
+): string {
+  return `${buildGymSystemPrompt(gymContext)}
+
+## Sub-agents You Can Delegate To
+
+${subAgentContext}
+
+When an owner asks you to create a task or assign work, extract: goal, which agent should own it, and the task type. Confirm what you created.`
 }

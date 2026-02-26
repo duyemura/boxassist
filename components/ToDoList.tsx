@@ -5,7 +5,10 @@ import { useState } from 'react'
 export interface ToDoItem {
   id: string
   priority: 'critical' | 'high' | 'medium' | 'low'
-  insightType: string  // 'churn_risk', 'renewal_at_risk', 'payment_failed', etc.
+  insightType: string  // 'churn_risk', 'renewal_at_risk', 'payment_failed', 'ad_hoc', etc.
+  assignedAgent?: string  // 'gm', 'retention', 'sales'
+  taskType?: string
+  goal?: string
   memberName: string
   memberEmail: string
   title: string           // "Jane hasn't been in 14 days"

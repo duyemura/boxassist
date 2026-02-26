@@ -151,6 +151,35 @@ export async function getOpenTasksForGym(gymId: string): Promise<AgentTask[]> {
 }
 
 // ============================================================
+// createAdHocTask
+// Creates a task from an owner request (via GM chat or manual entry).
+// These never require approval — the owner is already aware of them.
+// ============================================================
+export async function createAdHocTask(params: {
+  gymId: string
+  goal: string
+  assignedAgent: 'gm' | 'retention' | 'sales'
+  taskType?: string
+  memberEmail?: string
+  memberName?: string
+  context?: Record<string, unknown>
+}): Promise<AgentTask> {
+  return createTask({
+    gymId: params.gymId,
+    assignedAgent: params.assignedAgent,
+    taskType: params.taskType ?? 'ad_hoc',
+    memberEmail: params.memberEmail,
+    memberName: params.memberName,
+    goal: params.goal,
+    context: {
+      source: 'gm_chat',
+      ...params.context,
+    },
+    requiresApproval: false,
+  })
+}
+
+// ============================================================
 // createInsightTask
 // Creates an agent_task from a GMAgent GymInsight.
 // Called by GMAgent.runAnalysis and GMAgent.handleEvent.
