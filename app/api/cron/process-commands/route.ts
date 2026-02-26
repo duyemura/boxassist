@@ -6,6 +6,7 @@
  *
  * 1. Process pending commands from the command bus
  * 2. Auto-send messages for autopilot tasks that don't require approval
+ * 3. Process win-back follow-ups (multi-touch sequences)
  *
  * vercel.json:
  * {
@@ -18,12 +19,11 @@ import * as dbCommands from '@/lib/db/commands'
 import { SendEmailExecutor } from '@/lib/commands/executors/sendEmailExecutor'
 import { sendEmail } from '@/lib/resend'
 import { supabaseAdmin } from '@/lib/supabase'
-import { updateTaskStatus, appendConversation } from '@/lib/db/tasks'
+import { updateTaskStatus, appendConversation, getAutopilotSendCountToday, DAILY_AUTOPILOT_LIMIT } from '@/lib/db/tasks'
+import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
-
-const DAILY_AUTOPILOT_LIMIT = 10
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   // Validate CRON_SECRET — Vercel sends Authorization: Bearer <CRON_SECRET> on GET
@@ -36,6 +36,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   let commandResult: any = { processed: 0, failed: 0 }
   let autopilotSent = 0
+  let autopilotSkipped = 0
 
   try {
     // 1. Process command bus
@@ -78,36 +79,85 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const ctx = (task.context ?? {}) as Record<string, unknown>
       const draftMessage = ctx.draftMessage as string
       const memberEmail = task.member_email
+      const memberName = task.member_name ?? (memberEmail?.split('@')[0] ?? 'there')
       const messageSubject = (ctx.messageSubject as string) ?? 'Checking in from the gym'
+      const gymName = gym.gym_name ?? 'the gym'
 
       if (!draftMessage || !memberEmail) continue
 
-      // Check daily send limit
-      const todayStart = new Date()
-      todayStart.setHours(0, 0, 0, 0)
-      const { count } = await supabaseAdmin
-        .from('task_conversations')
-        .select('*', { count: 'exact', head: true })
+      // Check opt-out list
+      const { data: optout } = await supabaseAdmin
+        .from('communication_optouts')
+        .select('id')
         .eq('gym_id', task.gym_id)
-        .eq('role', 'agent')
-        .gte('created_at', todayStart.toISOString())
+        .eq('channel', 'email')
+        .eq('contact', memberEmail)
+        .maybeSingle()
 
-      if ((count ?? 0) >= DAILY_AUTOPILOT_LIMIT) {
-        console.log(`[process-commands] Autopilot daily limit reached for gym ${task.gym_id}`)
+      if (optout) {
+        console.log(`[process-commands] Skipping opted-out contact ${memberEmail} for task ${task.id}`)
+        await updateTaskStatus(task.id, 'cancelled', {
+          outcome: 'not_applicable',
+          outcomeReason: 'Contact opted out of email',
+        })
+        autopilotSkipped++
+        continue
+      }
+
+      // Check daily send limit using shared helper
+      const todayCount = await getAutopilotSendCountToday(task.gym_id)
+      if (todayCount >= DAILY_AUTOPILOT_LIMIT) {
+        console.log(`[process-commands] Autopilot daily limit (${DAILY_AUTOPILOT_LIMIT}) reached for gym ${task.gym_id}`)
         continue
       }
 
       try {
-        // Send email
-        await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL!,
-          replyTo: `reply+${task.id}@lunovoria.resend.app`,
-          to: memberEmail,
-          subject: messageSubject,
-          html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
-            ${draftMessage.split('\n').map((p: string) => `<p>${p}</p>`).join('')}
-          </div>`
-        })
+        // Send email — prefer Gmail if connected, fall back to Resend
+        let providerId: string | undefined
+        const htmlBody = `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
+          ${draftMessage.split('\n').map((p: string) => `<p>${p}</p>`).join('')}
+        </div>`
+
+        const gmailAddress = await isGmailConnected(task.gym_id)
+        if (gmailAddress) {
+          const result = await sendGmailMessage({
+            gymId: task.gym_id,
+            to: memberEmail,
+            subject: messageSubject,
+            body: draftMessage,
+          })
+          providerId = result?.messageId ?? undefined
+        } else {
+          const result = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL!,
+            replyTo: `reply+${task.id}@lunovoria.resend.app`,
+            to: memberEmail,
+            subject: messageSubject,
+            html: htmlBody,
+          })
+          providerId = result?.data?.id ?? undefined
+        }
+
+        // Track in outbound_messages for audit trail
+        try {
+          await dbCommands.createOutboundMessage({
+            gym_id: task.gym_id,
+            task_id: task.id,
+            sent_by_agent: 'retention',
+            channel: 'email',
+            recipient_email: memberEmail,
+            recipient_name: memberName,
+            subject: messageSubject,
+            body: draftMessage,
+            reply_token: task.id,
+            status: 'sent',
+            provider: gmailAddress ? null : 'resend',
+            provider_message_id: providerId ?? null,
+          })
+        } catch (err: any) {
+          // Non-fatal — message was still sent
+          console.warn(`[process-commands] Failed to log outbound_message for task ${task.id}:`, err?.message)
+        }
 
         // Log conversation + update task status
         await appendConversation(task.id, {
@@ -120,7 +170,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         await updateTaskStatus(task.id, 'awaiting_reply')
         autopilotSent++
 
-        console.log(`[process-commands] Autopilot sent to ${memberEmail} for task ${task.id}`)
+        console.log(`[process-commands] Autopilot sent to ${memberEmail} via ${gmailAddress ? 'gmail' : 'resend'} for task ${task.id}`)
       } catch (err: any) {
         console.error(`[process-commands] Autopilot send failed for task ${task.id}:`, err?.message)
       }
@@ -138,9 +188,25 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       .limit(10)
 
     for (const task of followUpTasks ?? []) {
-      const ctx = (task.context ?? {}) as Record<string, unknown>
       const memberEmail = task.member_email
       if (!memberEmail) continue
+
+      // Check opt-out
+      const { data: optout } = await supabaseAdmin
+        .from('communication_optouts')
+        .select('id')
+        .eq('gym_id', task.gym_id)
+        .eq('channel', 'email')
+        .eq('contact', memberEmail)
+        .maybeSingle()
+
+      if (optout) {
+        await updateTaskStatus(task.id, 'resolved', {
+          outcome: 'churned',
+          outcomeReason: 'Contact opted out of email',
+        })
+        continue
+      }
 
       // Determine follow-up touch number from conversation count
       const { count: msgCount } = await supabaseAdmin
@@ -168,20 +234,55 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         ? new Date(Date.now() + nextDays * 24 * 60 * 60 * 1000)
         : undefined
 
+      const firstName = task.member_name?.split(' ')[0] ?? 'there'
       const followUpMessage = touchNumber === 2
-        ? `Hey ${task.member_name?.split(' ')[0] ?? 'there'}, I know things change and that's OK. If there's anything we could do differently, I'd love to hear it. No pressure at all.`
-        : `Hey ${task.member_name?.split(' ')[0] ?? 'there'}, just wanted you to know the door's always open. If you ever want to come back, we'll be here. Wishing you the best.`
+        ? `Hey ${firstName}, I know things change and that's OK. If there's anything we could do differently, I'd love to hear it. No pressure at all.`
+        : `Hey ${firstName}, just wanted you to know the door's always open. If you ever want to come back, we'll be here. Wishing you the best.`
 
       try {
-        await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL!,
-          replyTo: `reply+${task.id}@lunovoria.resend.app`,
-          to: memberEmail,
-          subject: 'Re: Checking in',
-          html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
-            <p>${followUpMessage}</p>
-          </div>`
-        })
+        // Send via Gmail if connected, else Resend
+        let providerId: string | undefined
+        const gmailAddress = await isGmailConnected(task.gym_id)
+        if (gmailAddress) {
+          const result = await sendGmailMessage({
+            gymId: task.gym_id,
+            to: memberEmail,
+            subject: 'Re: Checking in',
+            body: followUpMessage,
+          })
+          providerId = result?.messageId ?? undefined
+        } else {
+          const result = await resend.emails.send({
+            from: process.env.RESEND_FROM_EMAIL!,
+            replyTo: `reply+${task.id}@lunovoria.resend.app`,
+            to: memberEmail,
+            subject: 'Re: Checking in',
+            html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
+              <p>${followUpMessage}</p>
+            </div>`,
+          })
+          providerId = result?.data?.id ?? undefined
+        }
+
+        // Track in outbound_messages
+        try {
+          await dbCommands.createOutboundMessage({
+            gym_id: task.gym_id,
+            task_id: task.id,
+            sent_by_agent: 'retention',
+            channel: 'email',
+            recipient_email: memberEmail,
+            recipient_name: task.member_name ?? null,
+            subject: 'Re: Checking in',
+            body: followUpMessage,
+            reply_token: task.id,
+            status: 'sent',
+            provider: gmailAddress ? null : 'resend',
+            provider_message_id: providerId ?? null,
+          })
+        } catch (err: any) {
+          console.warn(`[process-commands] Failed to log outbound_message for follow-up ${task.id}:`, err?.message)
+        }
 
         await appendConversation(task.id, {
           gymId: task.gym_id,
@@ -195,13 +296,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         }
 
         followUpsSent++
-        console.log(`[process-commands] Win-back follow-up #${touchNumber} sent for task ${task.id}`)
+        console.log(`[process-commands] Win-back follow-up #${touchNumber} sent via ${gmailAddress ? 'gmail' : 'resend'} for task ${task.id}`)
       } catch (err: any) {
         console.error(`[process-commands] Win-back follow-up failed for task ${task.id}:`, err?.message)
       }
     }
 
-    return NextResponse.json({ ...commandResult, autopilotSent, followUpsSent, ok: true })
+    return NextResponse.json({ ...commandResult, autopilotSent, autopilotSkipped, followUpsSent, ok: true })
   } catch (err: any) {
     console.error('process-commands cron error:', err?.message)
     return NextResponse.json({ error: err?.message ?? 'internal error' }, { status: 500 })
