@@ -7,6 +7,7 @@ import AgentPageLayout from '@/components/AgentPageLayout'
 import ReviewQueue from '@/components/ReviewQueue'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
 import SettingsPanel from '@/components/SettingsPanel'
+import MemoriesPanel from '@/components/MemoriesPanel'
 import GMChat from '@/components/GMChat'
 import RetentionScorecard from '@/components/RetentionScorecard'
 import ActivityFeed from '@/components/ActivityFeed'
@@ -137,8 +138,8 @@ function DashboardContent() {
   const [demoToast, setDemoToast] = useState<string | null>(null)
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
-  const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'settings'>('gm')
+  const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
+  const [activeSection, setActiveSection] = useState<'gm' | 'memories' | 'settings'>('gm')
 
   // Welcome modal for demo — shows once per session
   const [showWelcome, setShowWelcome] = useState(false)
@@ -381,6 +382,8 @@ function DashboardContent() {
       <div className="md:hidden h-full overflow-y-auto">
         {activeSection === 'settings'
           ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
+          : activeSection === 'memories'
+          ? <MemoriesPanel />
           : (
             <>
               <RetentionScorecard />
@@ -398,6 +401,10 @@ function DashboardContent() {
               <h1 className="text-lg font-semibold text-gray-900">Settings</h1>
             </div>
             <SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} />
+          </div>
+        ) : activeSection === 'memories' ? (
+          <div className="flex flex-col h-full overflow-hidden">
+            <MemoriesPanel />
           </div>
         ) : (
           <>

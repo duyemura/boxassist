@@ -107,10 +107,10 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
 
-  // Verify the memory belongs to this gym
+  // Verify the memory belongs to this account
   const { data: memory } = await supabaseAdmin
-    .from('account_memories')
-    .select('id, gym_id')
+    .from('memories')
+    .select('id, account_id')
     .eq('id', id)
     .single()
 
@@ -119,7 +119,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   await supabaseAdmin
-    .from('account_memories')
+    .from('memories')
     .update({ active: false, updated_at: new Date().toISOString() })
     .eq('id', id)
 

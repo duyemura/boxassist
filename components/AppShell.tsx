@@ -10,7 +10,7 @@ interface Agent {
   skill_type?: string
 }
 
-type NavSection = 'gm' | 'settings'
+type NavSection = 'gm' | 'memories' | 'settings'
 
 interface AppShellProps {
   isDemo: boolean
@@ -20,8 +20,8 @@ interface AppShellProps {
   children: React.ReactNode
   slidePanel?: React.ReactNode
   onSlidePanelClose: () => void
-  mobileTab: 'queue' | 'chat' | 'settings'
-  onMobileTabChange: (tab: 'queue' | 'chat' | 'settings') => void
+  mobileTab: 'queue' | 'chat' | 'memories' | 'settings'
+  onMobileTabChange: (tab: 'queue' | 'chat' | 'memories' | 'settings') => void
   activeSection?: NavSection
   onSectionChange?: (section: NavSection) => void
   // legacy — kept so callers don't need immediate updates, ignored in render
@@ -53,6 +53,13 @@ const NAV_AGENTS: NavItem[] = [
 ]
 
 const NAV_BOTTOM: NavItem[] = [
+  {
+    id: 'memories',
+    label: 'Memories',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 3C6.69 3 4 5.69 4 9c0 1.74.7 3.31 1.83 4.46L5 17l3.54-1.18A5.96 5.96 0 0 0 10 16c3.31 0 6-2.69 6-6s-2.69-7-6-7z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity=".8"/><path d="M7.5 9h5M7.5 11.5h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity=".5"/></svg>
+    ),
+  },
   {
     id: 'settings',
     label: 'Settings',
