@@ -19,6 +19,7 @@ interface Agent {
 interface AgentListProps {
   agents: Agent[]
   isDemo?: boolean
+  onSelect?: (agent: Agent) => void
   onToggle?: (skillType: string, isActive: boolean) => void
 }
 
@@ -44,7 +45,7 @@ function triggerLabel(agent: Agent): string {
   return agent.cron_schedule || 'Scheduled'
 }
 
-export default function AgentList({ agents, isDemo, onToggle }: AgentListProps) {
+export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentListProps) {
   const [toggling, setToggling] = useState<string | null>(null)
 
   const handleToggle = async (agent: Agent) => {
@@ -124,17 +125,28 @@ export default function AgentList({ agents, isDemo, onToggle }: AgentListProps) 
               )}
             </div>
 
-            {/* Stats */}
-            <div className="flex-shrink-0 text-right">
+            {/* Stats + Edit */}
+            <div className="flex-shrink-0 text-right flex flex-col items-end gap-1">
               {agent.last_run_at ? (
                 <>
                   <p className="text-xs text-gray-500">{timeAgo(agent.last_run_at)}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
+                  <p className="text-[10px] text-gray-400">
                     {agent.run_count ?? 0} runs
                   </p>
                 </>
               ) : (
                 <p className="text-xs text-gray-400">—</p>
+              )}
+              {onSelect && (
+                <button
+                  onClick={() => onSelect(agent)}
+                  className="text-[10px] font-semibold tracking-wide uppercase transition-colors mt-1"
+                  style={{ color: '#9CA3AF' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#0063FF')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
+                >
+                  Edit
+                </button>
               )}
             </div>
           </div>

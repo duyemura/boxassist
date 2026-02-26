@@ -12,6 +12,7 @@ import GMChat from '@/components/GMChat'
 import RetentionScorecard from '@/components/RetentionScorecard'
 import ActivityFeed from '@/components/ActivityFeed'
 import AgentList from '@/components/AgentList'
+import AgentEditor from '@/components/AgentEditor'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,7 @@ function DashboardContent() {
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
   const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'settings'>('gm')
+  const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
 
   // Welcome modal for demo — shows once per session
   const [showWelcome, setShowWelcome] = useState(false)
@@ -389,21 +391,51 @@ function DashboardContent() {
       <div className="md:hidden h-full overflow-y-auto">
         {activeSection === 'agents'
           ? (
-            <div className="px-4 py-4">
-              <h1 className="text-lg font-semibold text-gray-900 mb-3">Agents</h1>
-              <AgentList
-                agents={agentsList}
+            editingAgent !== undefined ? (
+              <AgentEditor
+                agent={editingAgent}
                 isDemo={isDemo}
-                onToggle={(skillType, isActive) => {
-                  if (data) {
-                    const updated = (data.agents ?? []).map((a: any) =>
-                      a.skill_type === skillType ? { ...a, is_active: isActive } : a
-                    )
-                    setData({ ...data, agents: updated })
-                  }
+                onBack={() => setEditingAgent(undefined)}
+                onSaved={async () => {
+                  setEditingAgent(undefined)
+                  const res = await fetch('/api/dashboard')
+                  if (res.ok) setData(await res.json())
+                }}
+                onDeleted={async () => {
+                  setEditingAgent(undefined)
+                  const res = await fetch('/api/dashboard')
+                  if (res.ok) setData(await res.json())
                 }}
               />
-            </div>
+            ) : (
+              <div>
+                <div className="px-4 py-4 flex items-center justify-between">
+                  <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
+                  {!isDemo && (
+                    <button
+                      onClick={() => setEditingAgent(null)}
+                      className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
+                      style={{ backgroundColor: '#0063FF' }}
+                    >
+                      + New agent
+                    </button>
+                  )}
+                </div>
+                <AgentList
+                  agents={agentsList}
+                  isDemo={isDemo}
+                  onSelect={agent => setEditingAgent(agent)}
+                  onToggle={(skillType, isActive) => {
+                    if (data) {
+                      const updated = (data.agents ?? []).map((a: any) =>
+                        a.skill_type === skillType ? { ...a, is_active: isActive } : a
+                      )
+                      setData({ ...data, agents: updated })
+                    }
+                  }}
+                />
+              </div>
+            )
           )
           : activeSection === 'settings'
           ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
@@ -421,27 +453,56 @@ function DashboardContent() {
       {/* Desktop */}
       <div className="hidden md:flex flex-col h-full overflow-hidden">
         {activeSection === 'agents' ? (
-          <div className="overflow-y-auto flex-1">
-            <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
-                <p className="text-xs text-gray-400 mt-0.5">Each agent watches for a specific situation and drafts a response.</p>
-              </div>
+          editingAgent !== undefined ? (
+            <div className="flex flex-col h-full overflow-hidden">
+              <AgentEditor
+                agent={editingAgent}
+                isDemo={isDemo}
+                onBack={() => setEditingAgent(undefined)}
+                onSaved={async () => {
+                  setEditingAgent(undefined)
+                  const res = await fetch('/api/dashboard')
+                  if (res.ok) setData(await res.json())
+                }}
+                onDeleted={async () => {
+                  setEditingAgent(undefined)
+                  const res = await fetch('/api/dashboard')
+                  if (res.ok) setData(await res.json())
+                }}
+              />
             </div>
-            <AgentList
-              agents={agentsList}
-              isDemo={isDemo}
-              onToggle={(skillType, isActive) => {
-                // Optimistic update
-                if (data) {
-                  const updated = (data.agents ?? []).map((a: any) =>
-                    a.skill_type === skillType ? { ...a, is_active: isActive } : a
-                  )
-                  setData({ ...data, agents: updated })
-                }
-              }}
-            />
-          </div>
+          ) : (
+            <div className="overflow-y-auto flex-1">
+              <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
+                  <p className="text-xs text-gray-400 mt-0.5">Each agent watches for a specific situation and drafts a response.</p>
+                </div>
+                {!isDemo && (
+                  <button
+                    onClick={() => setEditingAgent(null)}
+                    className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    + New agent
+                  </button>
+                )}
+              </div>
+              <AgentList
+                agents={agentsList}
+                isDemo={isDemo}
+                onSelect={agent => setEditingAgent(agent)}
+                onToggle={(skillType, isActive) => {
+                  if (data) {
+                    const updated = (data.agents ?? []).map((a: any) =>
+                      a.skill_type === skillType ? { ...a, is_active: isActive } : a
+                    )
+                    setData({ ...data, agents: updated })
+                  }
+                }}
+              />
+            </div>
+          )
         ) : activeSection === 'settings' ? (
           <div className="overflow-y-auto flex-1">
             <div className="px-6 pt-5 pb-3 border-b border-gray-100">
