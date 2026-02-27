@@ -2,92 +2,71 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountForUser } from '@/lib/db/accounts'
+import { loadSkillIndex } from '@/lib/skill-loader'
+import {
+  listSkillCustomizations,
+  upsertSkillCustomization,
+  deleteSkillCustomization,
+} from '@/lib/db/skill-customizations'
 
-// GET /api/skills — return system skills + this gym's custom skills
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Get the gym for this user
-  let accountId: string | null = null
-  if (!(session as any).isDemo) {
-    const account = await getAccountForUser(session.id)
-    accountId = (account?.id as string) ?? null
-  }
+  const account = await getAccountForUser((session as any).id)
+  if (!account) return NextResponse.json({ skills: [] })
 
-  // Fetch system skills (gym_id IS NULL, is_system = true)
-  const { data: systemSkills, error: sysErr } = await supabaseAdmin
-    .from('skills')
-    .select('*')
-    .is('account_id', null)
-    .eq('is_system', true)
-    .order('category')
-    .order('name')
+  const [skills, customizations] = await Promise.all([
+    loadSkillIndex(),
+    listSkillCustomizations(account.id),
+  ])
 
-  if (sysErr) {
-    return NextResponse.json({ error: sysErr.message }, { status: 500 })
-  }
+  const customMap = new Map(customizations.map(c => [c.skill_id, c]))
 
-  // Fetch this gym's custom skills
-  let gymSkills: any[] = []
-  if (accountId) {
-    const { data, error } = await supabaseAdmin
-      .from('skills')
-      .select('*')
-      .eq('account_id', accountId)
-      .order('created_at', { ascending: false })
-    if (!error) gymSkills = data ?? []
-  }
+  const result = skills
+    .filter(s => s.id !== '_base')
+    .map(s => ({
+      id: s.id,
+      filename: s.filename,
+      domain: s.domain,
+      applies_when: s.applies_when,
+      triggers: s.triggers,
+      body: s.body,
+      customization: customMap.get(s.id) ?? null,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id))
 
-  // Return system skills first, then gym-specific overrides/custom skills
-  // If a gym has cloned a system skill, it will appear in gymSkills with a gym_id
-  const skills = [...(systemSkills ?? []), ...gymSkills]
-
-  return NextResponse.json({ skills })
+  return NextResponse.json({ skills: result })
 }
 
-// POST /api/skills — create a new custom skill for this gym
-export async function POST(req: NextRequest) {
+export async function PUT(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
-  const account = await getAccountForUser(session.id)
+  const account = await getAccountForUser((session as any).id)
+  if (!account) return NextResponse.json({ error: 'No account' }, { status: 404 })
 
-  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  const { skillId, notes } = await req.json()
+  if (!skillId || typeof skillId !== 'string')
+    return NextResponse.json({ error: 'skillId required' }, { status: 400 })
+  if (!notes || typeof notes !== 'string' || !notes.trim())
+    return NextResponse.json({ error: 'notes required' }, { status: 400 })
 
-  const body = await req.json()
-  const { name, description, category, trigger_condition, system_prompt, tone_guidance, escalation_rules, success_criteria, followup_cadence, default_value_usd } = body
+  const customization = await upsertSkillCustomization(account.id, skillId, notes.trim())
+  return NextResponse.json({ customization })
+}
 
-  if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
+export async function DELETE(req: NextRequest) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Generate a slug from the name
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const account = await getAccountForUser((session as any).id)
+  if (!account) return NextResponse.json({ error: 'No account' }, { status: 404 })
 
-  const { data: skill, error } = await supabaseAdmin
-    .from('skills')
-    .insert({
-      account_id: account.id,
-      slug,
-      name,
-      description: description ?? null,
-      category: category ?? 'retention',
-      trigger_condition: trigger_condition ?? null,
-      system_prompt: system_prompt ?? description ?? name,
-      tone_guidance: tone_guidance ?? null,
-      escalation_rules: escalation_rules ?? null,
-      success_criteria: success_criteria ?? null,
-      followup_cadence: followup_cadence ?? null,
-      default_value_usd: default_value_usd ?? 130,
-      is_system: false,
-      is_active: true,
-    })
-    .select()
-    .single()
+  const { skillId } = await req.json()
+  if (!skillId) return NextResponse.json({ error: 'skillId required' }, { status: 400 })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({ skill }, { status: 201 })
+  await deleteSkillCustomization(account.id, skillId)
+  return NextResponse.json({ ok: true })
 }

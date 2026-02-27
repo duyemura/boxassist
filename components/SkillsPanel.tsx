@@ -1,454 +1,323 @@
 'use client'
-import { useState, useEffect } from 'react'
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+import { useEffect, useState, useRef } from 'react'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  retention: 'Retention',
-  growth: 'Growth',
-  billing: 'Billing',
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+interface SkillCustomization {
+  id: string
+  skill_id: string
+  notes: string
+  updated_at: string
 }
-
-const CATEGORY_COLORS: Record<string, string> = {
-  retention: '#080808',
-  growth: '#080808',
-  billing: '#080808',
-}
-
-// Category display order
-const CATEGORY_ORDER = ['retention', 'growth', 'billing']
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Skill {
   id: string
-  slug: string
-  name: string
-  description: string
-  category: string
-  trigger_condition: string
-  is_system: boolean
-  is_active: boolean
-  default_value_usd: number
-  gym_id?: string | null
-  system_prompt?: string
-  tone_guidance?: string
-  escalation_rules?: string
-  success_criteria?: string
-  followup_cadence?: string
-  automation_level?: string
+  filename: string
+  domain: string
+  applies_when: string
+  triggers: string[]
+  body: string
+  customization: SkillCustomization | null
 }
 
-// ─── Demo data ────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const DEMO_SKILLS: Skill[] = [
-  {
-    id: 'demo-at-risk',
-    slug: 'at-risk-early-warning',
-    name: 'At-Risk Early Warning',
-    description: 'Detects members showing early signs of drifting and sends a warm, coach-style check-in before they mentally cancel.',
-    category: 'retention',
-    trigger_condition: "When a member's check-in frequency drops 40% or more compared to their personal 30-day average, or when they miss two or more sessions they previously attended on a consistent schedule, and there is no active vacation hold, medical note, or freeze on their account.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 130,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-  {
-    id: 'demo-lapsed',
-    slug: 'lapsed-member-win-back',
-    name: 'Lapsed Member Win-Back',
-    description: 'Re-engages members who have been absent for 21 or more days with an honest, no-guilt outreach that gives them an easy path back.',
-    category: 'retention',
-    trigger_condition: "When a member has not checked in for 21 consecutive days or more, and they are still on an active or recently expired membership (within the last 60 days), and they have not previously received a win-back message in the last 90 days, and there is no freeze, hold, or cancellation request on their account.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 390,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-  {
-    id: 'demo-renewal',
-    slug: 'renewal-at-risk',
-    name: 'Renewal At-Risk',
-    description: 'Reaches out to members whose membership expires within 14 days and who are showing signs they may not renew.',
-    category: 'retention',
-    trigger_condition: "When a member's membership is set to expire within 14 days, and their attendance has declined by 30% or more over the past 30 days compared to the prior 30-day period, and they have not already started a renewal conversation or submitted a renewal payment, and there is no hold or freeze on their account.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 130,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-  {
-    id: 'demo-onboarding',
-    slug: 'new-member-onboarding',
-    name: 'New Member Onboarding',
-    description: 'Builds habit and connection in the critical first 30 days with carefully timed touchpoints that help new members feel welcome and confident.',
-    category: 'retention',
-    trigger_condition: "When a new membership is created or activated in the system, and the member has completed their first check-in, the onboarding sequence begins. Four messages are sent at day 3, day 7, day 14, and day 30 — but only if the member has not already received each message, and only if they are still active (not cancelled or frozen).",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 390,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-  {
-    id: 'demo-lead',
-    slug: 'new-lead-response',
-    name: 'New Lead Response',
-    description: 'Responds to new membership inquiries within minutes and guides interested prospects toward booking a trial class or intro session.',
-    category: 'growth',
-    trigger_condition: "When a new lead inquiry is submitted through any connected channel — a website contact form, an Instagram DM, a PushPress lead form, or a direct email to the gym's inquiry address — and the lead has not previously been marked as a member or existing contact in the system.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 260,
-    automation_level: 'smart',
-    account_id: null,
-  },
-  {
-    id: 'demo-referral',
-    slug: 'milestone-referral',
-    name: 'Milestone Referral',
-    description: 'Asks engaged, happy members for a referral at the moment of peak satisfaction — right after they hit a meaningful milestone.',
-    category: 'growth',
-    trigger_condition: "When a member hits a personal milestone — their 10th, 25th, 50th, or 100th session, their one-month, six-month, or one-year membership anniversary, or completes a program or challenge — and they have no recent complaints, holds, or billing issues on their account, and they have not been asked for a referral in the past 90 days.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 260,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-  {
-    id: 'demo-payment',
-    slug: 'failed-payment-recovery',
-    name: 'Failed Payment Recovery',
-    description: 'Recovers failed membership payments with a friendly, practical message that assumes good faith and gives the member an easy path to fix it.',
-    category: 'billing',
-    trigger_condition: "When a payment failure webhook is received from PushPress or the connected payment processor, and the member has an active or recently active membership, and no manual payment resolution is already in progress. The first message fires within 2 hours of the failure. A second message fires 3 days later if payment remains unresolved. A third message fires 7 days after the first, then the case is handed to the owner.",
-    is_system: true,
-    is_active: true,
-    default_value_usd: 0,
-    automation_level: 'draft_only',
-    account_id: null,
-  },
-]
+const DOMAIN_COLORS: Record<string, string> = {
+  retention:  '#0063FF',
+  analysis:   '#7C3AED',
+  sales:      '#059669',
+  general:    '#6B7280',
+}
 
-// ─── Skill Detail Panel ───────────────────────────────────────────────────────
+function domainColor(domain: string): string {
+  return DOMAIN_COLORS[domain] ?? DOMAIN_COLORS.general
+}
 
-function SkillDetail({
-  skill,
-  isDemo,
-  onClone,
-  onDelete,
-  onClose,
-}: {
+function formatSkillName(id: string): string {
+  return id
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// ── Skill Card ────────────────────────────────────────────────────────────────
+
+function SkillCard({ skill, onSave, onDelete }: {
   skill: Skill
-  isDemo: boolean
-  onClone: () => Promise<void>
-  onDelete: () => Promise<void>
-  onClose: () => void
+  onSave: (skillId: string, notes: string) => Promise<boolean>
+  onDelete: (skillId: string) => Promise<void>
 }) {
-  const [cloning, setCloning] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [cloned, setCloned] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [notes, setNotes] = useState(skill.customization?.notes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const isSystemSkill = skill.is_system && !skill.gym_id
-  const isCustom = !!skill.gym_id
+  // Strip markdown headers/symbols for a readable preview
+  const bodyPreview = skill.body
+    .replace(/^---[\s\S]*?---\n/, '')
+    .replace(/^#{1,3} .+$/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 
-  const handleClone = async () => {
-    setCloning(true)
-    await onClone()
-    setCloned(true)
-    setCloning(false)
+  const color = domainColor(skill.domain)
+  const hasCustomization = !!skill.customization
+
+  const handleEditStart = () => {
+    setNotes(skill.customization?.notes ?? '')
+    setSaveError(false)
+    setEditing(true)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const handleCancel = () => {
+    setEditing(false)
+    setSaveError(false)
+  }
+
+  const handleSave = async () => {
+    if (!notes.trim() || saving) return
+    setSaving(true)
+    setSaveError(false)
+    const ok = await onSave(skill.id, notes.trim())
+    setSaving(false)
+    if (ok) {
+      setEditing(false)
+    } else {
+      setSaveError(true)
+    }
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Delete "${skill.name}"? This cannot be undone.`)) return
-    setDeleting(true)
-    await onDelete()
-    setDeleting(false)
+    await onDelete(skill.id)
+    setConfirming(false)
+    setNotes('')
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-5 pt-5 pb-4 border-b border-gray-100">
-        <div className="flex items-start justify-between gap-2 mb-1">
+    <div
+      className="border border-gray-100 bg-white"
+      style={{ borderLeft: `2px solid ${color}` }}
+    >
+      {/* Header row */}
+      <div className="px-4 pt-3 pb-2 flex items-start gap-3">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-900">{formatSkillName(skill.id)}</span>
             <span
-              className="text-[10px] font-semibold tracking-widest uppercase"
-              style={{ color: CATEGORY_COLORS[skill.category] ?? '#6E7783' }}
+              className="text-[10px] font-semibold tracking-widest uppercase px-1.5 py-0.5 flex-shrink-0"
+              style={{ backgroundColor: `${color}15`, color }}
             >
-              {CATEGORY_LABELS[skill.category] ?? skill.category}
+              {skill.domain}
             </span>
-            {isSystemSkill && (
-              <span className="text-[10px] text-gray-300">system</span>
-            )}
-            {isCustom && (
-              <span className="text-[10px] font-medium" style={{ color: '#0063FF' }}>custom</span>
+            {hasCustomization && !editing && (
+              <span className="text-[10px] font-semibold tracking-widests uppercase px-1.5 py-0.5 flex-shrink-0" style={{ backgroundColor: '#F0FDF4', color: '#16A34A' }}>
+                customized
+              </span>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-300 hover:text-gray-500 text-xs flex-shrink-0"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{skill.applies_when}</p>
         </div>
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{skill.name}</p>
-        <p className="text-xs text-gray-400 mt-1 leading-relaxed">{skill.description}</p>
+
+        {/* Actions */}
+        {!editing && (
+          <div className="flex-shrink-0 flex items-center gap-1">
+            <button
+              onClick={handleEditStart}
+              className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 transition-colors"
+            >
+              Edit
+            </button>
+            {hasCustomization && (
+              confirming ? (
+                <button
+                  onClick={handleDelete}
+                  className="text-[10px] px-1.5 py-0.5 transition-colors"
+                  style={{ color: '#EF4444' }}
+                >
+                  Confirm
+                </button>
+              ) : (
+                <button
+                  onClick={() => setConfirming(true)}
+                  onBlur={() => setTimeout(() => setConfirming(false), 150)}
+                  className="text-[10px] text-gray-400 hover:text-red-500 px-1.5 py-0.5 transition-colors"
+                >
+                  Remove
+                </button>
+              )
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Details */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-        {skill.trigger_condition && (
-          <div>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-300 mb-1">Trigger</p>
-            <p className="text-xs text-gray-500 font-mono bg-gray-50 px-2 py-1.5 rounded">{skill.trigger_condition}</p>
-          </div>
-        )}
+      {/* Skill body preview */}
+      {!editing && (
+        <div className="px-4 pb-2">
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+          >
+            <span>{expanded ? '▾' : '▸'}</span> Playbook
+          </button>
+          {expanded && (
+            <p className="text-xs text-gray-500 leading-relaxed mt-1.5 whitespace-pre-line">
+              {bodyPreview}
+            </p>
+          )}
+        </div>
+      )}
 
-        {skill.system_prompt && (
-          <div>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-300 mb-1">Agent Instructions</p>
-            <p className="text-xs text-gray-600 leading-relaxed">{skill.system_prompt}</p>
-          </div>
-        )}
-
-        {skill.escalation_rules && (
-          <div>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-300 mb-1">Escalation</p>
-            <p className="text-xs text-gray-500 leading-relaxed">{skill.escalation_rules}</p>
-          </div>
-        )}
-
-        {skill.success_criteria && (
-          <div>
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-300 mb-1">Success</p>
-            <p className="text-xs text-gray-500 leading-relaxed">{skill.success_criteria}</p>
-          </div>
-        )}
-
-        <div>
-          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-300 mb-1">Est. value / save</p>
-          <p className="text-xs text-gray-700 font-medium">
-            {skill.default_value_usd > 0 ? `$${skill.default_value_usd} per member saved` : 'Included'}
+      {/* Existing note (view mode) */}
+      {hasCustomization && !editing && (
+        <div className="px-4 pb-3">
+          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1">Your instructions</p>
+          <p className="text-xs text-gray-700 leading-relaxed border-l-2 border-gray-200 pl-2.5">
+            {skill.customization!.notes}
           </p>
         </div>
-      </div>
+      )}
 
-      {/* Actions */}
-      {!isDemo && (
-        <div className="px-5 py-4 border-t border-gray-100 space-y-2">
-          {isSystemSkill && !cloned && (
+      {/* Edit form */}
+      {editing && (
+        <div className="px-4 pb-3">
+          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1.5">Your instructions</p>
+          <textarea
+            ref={textareaRef}
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder={`Add business-specific notes — e.g. "Always mention our Saturday intro class. Sign off as Coach Mike."`}
+            rows={3}
+            className="w-full text-sm text-gray-800 border border-gray-200 px-3 py-2 resize-none focus:outline-none focus:border-blue-400 mb-2"
+          />
+          <div className="flex items-center gap-2 justify-end">
+            {saveError && <span className="text-[10px] text-red-500 mr-auto">Failed to save</span>}
             <button
-              onClick={handleClone}
-              disabled={cloning}
-              className="w-full text-xs font-semibold text-white py-2 transition-opacity hover:opacity-80 disabled:opacity-50"
+              onClick={handleCancel}
+              className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors px-2 py-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!notes.trim() || saving}
+              className="text-[10px] font-semibold text-white px-3 py-1 transition-opacity hover:opacity-80 disabled:opacity-40"
               style={{ backgroundColor: '#0063FF' }}
             >
-              {cloning ? 'Cloning…' : 'Clone & customize'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
-          )}
-          {(isSystemSkill && cloned) && (
-            <p className="text-xs text-center" style={{ color: '#0063FF' }}>✓ Cloned to your library</p>
-          )}
-          {isCustom && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="w-full text-xs font-medium text-red-400 py-2 border border-red-100 hover:bg-red-50 transition-colors disabled:opacity-50"
-            >
-              {deleting ? 'Deleting…' : 'Delete playbook'}
-            </button>
-          )}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Main Skills Panel ────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
-export default function SkillsPanel({ isDemo, onSelectSkill }: { isDemo: boolean; onSelectSkill: (skill: Skill) => void }) {
+export default function SkillsPanel() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<Skill | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [newSkillName, setNewSkillName] = useState('')
-  const [newSkillDesc, setNewSkillDesc] = useState('')
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadSkills = () => {
-    if (isDemo) {
-      setSkills(DEMO_SKILLS)
-      setLoading(false)
-      return
-    }
-    setLoading(true)
+  const fetchSkills = () => {
     fetch('/api/skills')
       .then(r => r.json())
-      .then(d => {
-        setSkills(d.skills ?? [])
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+      .then(json => { setSkills(json.skills ?? []); setLoading(false) })
+      .catch(() => { setError('Failed to load skills'); setLoading(false) })
   }
 
-  useEffect(() => {
-    loadSkills()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemo])
+  useEffect(() => { fetchSkills() }, [])
 
-  // Group by category, respect display order
-  const grouped = skills.reduce((acc, s) => {
-    const cat = s.category || 'other'
-    if (!acc[cat]) acc[cat] = []
-    acc[cat].push(s)
-    return acc
-  }, {} as Record<string, Skill[]>)
-
-  // Sort categories by preferred order, then alphabetically for others
-  const orderedCats = [
-    ...CATEGORY_ORDER.filter(c => grouped[c]),
-    ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c)).sort(),
-  ]
-
-  if (loading) {
-    return (
-      <div className="p-8 text-xs text-gray-400 flex items-center gap-2">
-        <div
-          className="w-3 h-3 border border-t-transparent rounded-full animate-spin"
-          style={{ borderColor: '#0063FF', borderTopColor: 'transparent' }}
-        />
-        Loading skills…
-      </div>
-    )
+  const handleSave = async (skillId: string, notes: string): Promise<boolean> => {
+    const res = await fetch('/api/skills', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skillId, notes }),
+    })
+    if (res.ok) {
+      const json = await res.json()
+      setSkills(prev => prev.map(s =>
+        s.id === skillId ? { ...s, customization: json.customization } : s
+      ))
+      return true
+    }
+    return false
   }
+
+  const handleDelete = async (skillId: string): Promise<void> => {
+    await fetch('/api/skills', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skillId }),
+    })
+    setSkills(prev => prev.map(s => s.id === skillId ? { ...s, customization: null } : s))
+  }
+
+  const customized = skills.filter(s => s.customization)
+  const uncustomized = skills.filter(s => !s.customization)
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex-1 overflow-y-auto min-w-0">
-        <div className="px-6 pt-6 pb-3 flex items-center justify-between">
-          <p className="text-xs font-semibold tracking-widest text-gray-400 uppercase">Playbooks</p>
-          {!isDemo && (
-            <button
-              onClick={() => { setCreating(true); setSelected(null) }}
-              className="text-xs font-semibold px-3 py-1.5 text-white transition-opacity hover:opacity-80"
-              style={{ backgroundColor: '#0063FF' }}
-            >
-              + New playbook
-            </button>
-          )}
-        </div>
-
-        {orderedCats.map(cat => (
-          <div key={cat} className="mb-2">
-            <div className="px-6 pt-5 pb-2 border-b border-gray-100">
-              <h3
-                className="text-base font-bold tracking-tight"
-                style={{ color: CATEGORY_COLORS[cat] ?? '#080808' }}
-              >
-                {CATEGORY_LABELS[cat] ?? cat}
-              </h3>
-            </div>
-            {grouped[cat].map(skill => (
-              <button
-                key={skill.id}
-                onClick={() => { onSelectSkill(skill); setCreating(false) }}
-                className="w-full text-left px-6 py-3 border-b border-gray-100 transition-colors hover:bg-gray-50 group"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-900 truncate">{skill.name}</p>
-                      {skill.is_system && !skill.gym_id && (
-                        <span className="text-[10px] text-gray-300 flex-shrink-0">system</span>
-                      )}
-                      {skill.gym_id && (
-                        <span className="text-[10px] flex-shrink-0 font-medium" style={{ color: '#0063FF' }}>custom</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{skill.description}</p>
-                  </div>
-                  <span className="text-xs text-gray-300 group-hover:text-gray-500 flex-shrink-0 mt-0.5 transition-colors">→</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        ))}
-
-        {/* New Skill form */}
-        {creating && (
-          <div className="px-6 py-5 border-t border-gray-100 bg-gray-50">
-            <p className="text-xs font-semibold text-gray-900 mb-3">New playbook</p>
-            {error && (
-              <p className="text-xs text-red-500 mb-2">{error}</p>
-            )}
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Playbook name"
-                value={newSkillName}
-                onChange={e => setNewSkillName(e.target.value)}
-                className="w-full text-xs border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400"
-              />
-              <textarea
-                placeholder="What should this playbook do? Describe it in plain English."
-                value={newSkillDesc}
-                onChange={e => setNewSkillDesc(e.target.value)}
-                rows={3}
-                className="w-full text-xs border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 resize-none"
-              />
-              <div className="flex gap-2">
-                <button
-                  disabled={saving || !newSkillName.trim()}
-                  className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ backgroundColor: '#0063FF' }}
-                  onClick={async () => {
-                    if (!newSkillName.trim()) return
-                    setSaving(true)
-                    setError(null)
-                    try {
-                      const res = await fetch('/api/skills', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          name: newSkillName.trim(),
-                          description: newSkillDesc.trim(),
-                        }),
-                      })
-                      const data = await res.json()
-                      if (!res.ok) throw new Error(data.error ?? 'Failed to create')
-                      setCreating(false)
-                      setNewSkillName('')
-                      setNewSkillDesc('')
-                      loadSkills()
-                    } catch (err: any) {
-                      setError(err.message)
-                    } finally {
-                      setSaving(false)
-                    }
-                  }}
-                >
-                  {saving ? 'Creating…' : 'Create'}
-                </button>
-                <button
-                  onClick={() => { setCreating(false); setError(null) }}
-                  className="text-xs text-gray-400 hover:text-gray-600"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+    <div className="overflow-y-auto flex-1">
+      <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+        <h1 className="text-lg font-semibold text-gray-900">Skills</h1>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Playbooks that guide how agents handle each situation. Add notes to steer a skill for your business.
+        </p>
       </div>
 
+      <div className="px-6 py-6">
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <div className="w-3 h-3 border border-gray-300 border-t-blue-500 animate-spin" style={{ borderRadius: '50%' }} />
+            Loading skills…
+          </div>
+        )}
+
+        {error && <p className="text-xs text-red-500">{error}</p>}
+
+        {!loading && !error && (
+          <>
+            {/* Customized skills first */}
+            {customized.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-baseline gap-3 mb-3">
+                  <h2 className="text-sm font-semibold text-gray-900">Customized</h2>
+                  <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+                    {customized.length} {customized.length === 1 ? 'skill' : 'skills'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {customized.map(s => (
+                    <SkillCard key={s.id} skill={s} onSave={handleSave} onDelete={handleDelete} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* All other skills */}
+            <div>
+              <div className="flex items-baseline gap-3 mb-1">
+                <h2 className="text-sm font-semibold text-gray-900">All Skills</h2>
+                <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+                  {uncustomized.length} using defaults
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">
+                These skills run as-is. Add a note to any skill to customize it for your business.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {uncustomized.map(s => (
+                  <SkillCard key={s.id} skill={s} onSave={handleSave} onDelete={handleDelete} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

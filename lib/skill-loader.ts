@@ -15,6 +15,7 @@
 import { readFile, readdir } from 'fs/promises'
 import { join } from 'path'
 import { getMemoriesForPrompt } from './db/memories'
+import { getSkillCustomizations } from './db/skill-customizations'
 
 const SKILLS_DIR = join(process.cwd(), 'lib', 'task-skills')
 const CONTEXT_DIR = join(process.cwd(), 'lib', 'context')
@@ -51,6 +52,13 @@ const TASK_TYPE_TO_FILE: Record<string, string> = {
   lead_reactivation: 'lead-reactivation.md',
   lead_re_activation: 'lead-reactivation.md',  // agents created before skill_type fix (name-derived)
   lead_nurture: 'lead-followup.md',
+  renewal: 'renewal.md',
+  membership_renewal: 'renewal.md',
+  referral: 'referral.md',
+  member_referral: 'referral.md',
+  milestone: 'milestone.md',
+  member_milestone: 'milestone.md',
+  anniversary: 'milestone.md',
 }
 
 // ── File cache ───────────────────────────────────────────────────────────────
@@ -311,13 +319,17 @@ export async function buildEvaluationPrompt(
   taskType: string,
   opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
-  const [baseContext, skillContext] = await Promise.all([
+  const [baseContext, skillContextRaw, memories] = await Promise.all([
     loadBaseContext(),
     loadSkillPrompt(taskType),
+    opts?.accountId
+      ? loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
+      : Promise.resolve(''),
   ])
-  const memories = opts?.accountId
-    ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
-    : ''
+
+  const skillContext = opts?.accountId
+    ? await appendSkillCustomization(skillContextRaw, taskType, opts.accountId)
+    : skillContextRaw
 
   const baseBlock = baseContext ? `${baseContext}\n\n---\n\n` : ''
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
@@ -353,13 +365,17 @@ export async function buildDraftingPrompt(
   taskType: string,
   opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
-  const [baseContext, skillContext] = await Promise.all([
+  const [baseContext, skillContextRaw, memories] = await Promise.all([
     loadBaseContext(),
     loadSkillPrompt(taskType),
+    opts?.accountId
+      ? loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
+      : Promise.resolve(''),
   ])
-  const memories = opts?.accountId
-    ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
-    : ''
+
+  const skillContext = opts?.accountId
+    ? await appendSkillCustomization(skillContextRaw, taskType, opts.accountId)
+    : skillContextRaw
 
   const baseBlock = baseContext ? `${baseContext}\n\n---\n\n` : ''
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
@@ -370,9 +386,11 @@ export async function buildDraftingPrompt(
 
 ## Your Task Now
 
-Draft a message from the gym to the member. Use the approach guidelines above (specifically Touch 1 for initial outreach). Write in a warm, personal, coach voice — not salesy or corporate.
+Draft a message from the gym to the member. Use the approach guidelines above (specifically Touch 1 for initial outreach). Write in a warm, personal, coach voice, not salesy or corporate.
 
-Return ONLY the message text — no subject line, no explanation, just the message.`
+CRITICAL: Never use emdashes in the message. Use commas, periods, or new sentences instead.
+
+Return ONLY the message text, no subject line, no explanation, just the message.`
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -388,6 +406,41 @@ async function loadMemories(
   } catch (err) {
     console.warn('[skill-loader] Failed to load gym memories:', (err as Error).message)
     return ''
+  }
+}
+
+// ── Skill customization injection ─────────────────────────────────────────────
+
+/**
+ * Append a per-account customization note to a skill prompt if one exists.
+ * Maps taskType → skill id → looks up customization → appends as a new section.
+ * Returns the original prompt unchanged if no customization is found.
+ */
+async function appendSkillCustomization(
+  skillPrompt: string,
+  taskType: string,
+  accountId: string,
+): Promise<string> {
+  try {
+    const [skills, customizations] = await Promise.all([
+      loadSkillIndex(),
+      getSkillCustomizations(accountId),
+    ])
+
+    // Resolve taskType to skill id: check direct id match, filename match, or trigger match
+    const skill = skills.find(s =>
+      s.id === taskType ||
+      s.filename === `${taskType}.md` ||
+      s.triggers.includes(taskType)
+    )
+    if (!skill) return skillPrompt
+
+    const note = customizations.get(skill.id)
+    if (!note) return skillPrompt
+
+    return `${skillPrompt}\n\n## Business Instructions for This Skill\n${note}`
+  } catch {
+    return skillPrompt
   }
 }
 

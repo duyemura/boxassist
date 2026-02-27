@@ -3,16 +3,18 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
-import AgentPageLayout from '@/components/AgentPageLayout'
 import ReviewQueue from '@/components/ReviewQueue'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import MemoriesPanel from '@/components/MemoriesPanel'
 import GMChat from '@/components/GMChat'
-import RetentionScorecard from '@/components/RetentionScorecard'
-import ActivityFeed from '@/components/ActivityFeed'
 import AgentList from '@/components/AgentList'
 import AgentEditor from '@/components/AgentEditor'
+import CommandStats from '@/components/CommandStats'
+import AgentRoster from '@/components/AgentRoster'
+import ScheduledRuns from '@/components/ScheduledRuns'
+import QuickQueue from '@/components/QuickQueue'
+import SkillsPanel from '@/components/SkillsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,15 +51,23 @@ interface DashboardData {
 
 // ─── Demo seed ────────────────────────────────────────────────────────────────
 
+function demoNextRun(hourOffset = 0): string {
+  const d = new Date()
+  d.setHours(9, 0, 0, 0)
+  if (d <= new Date()) d.setDate(d.getDate() + 1)
+  d.setHours(d.getHours() + hourOffset)
+  return d.toISOString()
+}
+
 const DEMO_AGENTS = [
-  { id: 'demo-at-risk', name: 'At-Risk Member Detector', description: 'Spots members whose attendance is dropping before they cancel', is_active: true, skill_type: 'at_risk_detector', trigger_mode: 'cron', cron_schedule: 'daily',
-    last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 47 },
-  { id: 'demo-payment', name: 'Payment Recovery', description: 'Catches failed payments and drafts a friendly recovery message', is_active: true, skill_type: 'payment_recovery', trigger_mode: 'cron', cron_schedule: 'daily',
-    last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 12 },
-  { id: 'demo-winback', name: 'Win-Back Outreach', description: 'Reaches out to members who cancel with a personal note', is_active: false, skill_type: 'win_back', trigger_mode: 'event', trigger_event: 'customer.status.changed',
-    last_run_at: undefined, run_count: 0 },
-  { id: 'demo-onboarding', name: 'New Member Welcome', description: 'Checks in on new members to make sure they are settling in', is_active: false, skill_type: 'new_member_onboarding', trigger_mode: 'cron', cron_schedule: 'daily',
-    last_run_at: undefined, run_count: 0 },
+  { id: 'demo-at-risk', name: 'At-Risk Detector', description: 'Spots clients whose attendance is dropping before they cancel', is_active: true, skill_type: 'at_risk_detector', trigger_mode: 'cron', cron_schedule: 'daily', run_hour: 9,
+    last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 47, pending_count: 2, next_run_at: demoNextRun() },
+  { id: 'demo-payment', name: 'Payment Recovery', description: 'Catches failed payments and drafts a friendly recovery message', is_active: true, skill_type: 'payment_recovery', trigger_mode: 'cron', cron_schedule: 'daily', run_hour: 9,
+    last_run_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(), run_count: 12, pending_count: 1, next_run_at: demoNextRun(2) },
+  { id: 'demo-winback', name: 'Win-Back Outreach', description: 'Reaches out to clients who cancel with a personal note', is_active: false, skill_type: 'win_back', trigger_mode: 'event', trigger_event: 'customer.status.changed',
+    last_run_at: undefined, run_count: 0, pending_count: 0, next_run_at: null },
+  { id: 'demo-onboarding', name: 'New Client Welcome', description: 'Checks in on new clients to make sure they are settling in', is_active: false, skill_type: 'new_member_onboarding', trigger_mode: 'cron', cron_schedule: 'daily', run_hour: 9,
+    last_run_at: undefined, run_count: 0, pending_count: 0, next_run_at: demoNextRun(4) },
 ]
 
 // ─── Small components ─────────────────────────────────────────────────────────
@@ -147,7 +157,7 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'settings'>('gm')
+  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'settings'>('gm')
   const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
 
   // Welcome modal for demo — shows once per session
@@ -328,17 +338,20 @@ function DashboardContent() {
   const autopilotLevel = acct?.autopilot_level ?? 'draft_only'
   const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
 
-  const atRiskAgent = agentsList.find((a: any) => a.skill_type === 'at_risk_detector')
-  const gmLastRunAt: string | undefined = atRiskAgent?.last_run_at ?? data?.recentRuns?.[0]?.created_at
+  // Dashboard stats — from API or computed from local data
+  const apiStats = (data as any)?.stats
+  const dashStats = {
+    activeAgents: apiStats?.activeAgents ?? agentsList.filter((a: any) => a.is_active).length,
+    pendingCount: apiStats?.pendingCount ?? uniqueActions.length,
+    lastRunAt: apiStats?.lastRunAt ?? data?.recentRuns?.[0]?.created_at ?? null,
+  }
 
-  // Primary agent: the first real agent for this account (what the owner just created)
-  const primaryAgent = agentsList[0]
-  const primaryAgentName = isDemo ? 'GM Agent' : (primaryAgent?.name ?? 'No agents yet')
-  const primaryAgentDesc = isDemo
-    ? 'Retention · Win-Back · At-Risk'
-    : (primaryAgent?.description ?? 'Create your first agent to get started')
-  const primaryLastRunAt = isDemo ? gmLastRunAt : (primaryAgent?.last_run_at ?? data?.recentRuns?.[0]?.created_at)
-  const hasAgents = isDemo || agentsList.length > 0
+  // Agents enriched with stats (already on real agents from API; add defaults for demo)
+  const agentsWithStats = agentsList.map((a: any) => ({
+    ...a,
+    pending_count: a.pending_count ?? 0,
+    next_run_at: a.next_run_at ?? null,
+  }))
 
   // Build de-duped, non-dismissed action list
   const allActions: ActionCard[] = [
@@ -361,7 +374,7 @@ function DashboardContent() {
       ref={gmChatRef}
       accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
       isDemo={isDemo}
-      agentName={primaryAgentName}
+      agentName={isDemo ? 'GM Agent' : (agentsWithStats[0]?.name ?? 'GM Agent')}
       onRunAnalysis={runScan}
       onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
       analysisProgress={{
@@ -442,6 +455,12 @@ function DashboardContent() {
                       setData({ ...data, agents: updated })
                     }
                   }}
+                  onDelete={(agentId) => {
+                    if (data) {
+                      const updated = (data.agents ?? []).filter((a: any) => a.id !== agentId)
+                      setData({ ...data, agents: updated })
+                    }
+                  }}
                 />
               </div>
             )
@@ -450,9 +469,16 @@ function DashboardContent() {
           ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
           : activeSection === 'memories'
           ? <MemoriesPanel />
+          : activeSection === 'skills'
+          ? <SkillsPanel />
           : (
             <>
-              <RetentionScorecard />
+              <CommandStats
+                activeAgents={dashStats.activeAgents}
+                pendingCount={dashStats.pendingCount}
+                lastRunAt={dashStats.lastRunAt}
+                isDemo={isDemo}
+              />
               <div className="px-4 py-4">{mobileContent}</div>
             </>
           )
@@ -509,6 +535,12 @@ function DashboardContent() {
                     setData({ ...data, agents: updated })
                   }
                 }}
+                onDelete={(agentId) => {
+                  if (data) {
+                    const updated = (data.agents ?? []).filter((a: any) => a.id !== agentId)
+                    setData({ ...data, agents: updated })
+                  }
+                }}
               />
             </div>
           )
@@ -523,46 +555,54 @@ function DashboardContent() {
           <div className="flex flex-col h-full overflow-hidden">
             <MemoriesPanel />
           </div>
+        ) : activeSection === 'skills' ? (
+          <div className="flex flex-col h-full overflow-hidden">
+            <SkillsPanel />
+          </div>
         ) : (
-          <>
-            {hasAgents ? (
-              <AgentPageLayout
-                agentName={primaryAgentName}
-                agentDescription={primaryAgentDesc}
-                status="active"
-                lastRunAt={primaryLastRunAt}
-                onRunNow={runScan}
-                isRunning={running}
-                runLabel="Run scan"
-                executionMode={executionMode}
-                scorecardSlot={<RetentionScorecard />}
-                queueCount={uniqueActions.length}
-                queueSlot={reviewQueueNode}
-                feedSlot={<ActivityFeed />}
-                chatSlot={gmChatNode}
-              />
-            ) : (
-              <div className="flex-1 flex items-center justify-center p-12">
-                <div className="text-center max-w-sm">
-                  <div className="w-12 h-12 flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#F3F4F6' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
-                      <path d="M12 2a10 10 0 0 1 10 10" />
-                    </svg>
-                  </div>
-                  <h2 className="text-lg font-bold text-gray-900 mb-2">No agents yet</h2>
-                  <p className="text-sm text-gray-500 mb-6">Create your first agent to start monitoring your members.</p>
-                  <button
-                    onClick={() => router.push('/setup')}
-                    className="text-sm font-bold text-white px-6 py-3 transition-opacity hover:opacity-80"
-                    style={{ backgroundColor: '#0063FF' }}
-                  >
-                    Create your first agent →
-                  </button>
+          // ── Command Center ──────────────────────────────────────────────────
+          <div className="flex flex-col h-full overflow-hidden">
+            <CommandStats
+              activeAgents={dashStats.activeAgents}
+              pendingCount={dashStats.pendingCount}
+              lastRunAt={dashStats.lastRunAt}
+              isDemo={isDemo}
+            />
+            <div className="flex flex-1 min-h-0 overflow-hidden">
+              {/* Left col: Agent Roster */}
+              <div className="flex-[3] min-w-0 border-r border-gray-100 overflow-y-auto">
+                <AgentRoster
+                  agents={agentsWithStats}
+                  isDemo={isDemo}
+                  onSelect={agent => { setEditingAgent(agent); setActiveSection('agents') }}
+                  onToggle={(skillType, isActive) => {
+                    if (data) setData({ ...data, agents: (data.agents ?? []).map((a: any) =>
+                      a.skill_type === skillType ? { ...a, is_active: isActive } : a
+                    )})
+                  }}
+                  onDelete={agentId => {
+                    if (data) setData({ ...data, agents: (data.agents ?? []).filter((a: any) => a.id !== agentId) })
+                  }}
+                  onAddAgent={() => { setEditingAgent(null); setActiveSection('agents') }}
+                />
+              </div>
+              {/* Right col: Scheduled Runs + Quick Queue + Chat */}
+              <div className="flex-[2] min-w-0 flex flex-col overflow-hidden">
+                <ScheduledRuns agents={agentsWithStats} />
+                <div className="border-b border-gray-100 flex-shrink-0">
+                  <QuickQueue
+                    actions={uniqueActions}
+                    onSelect={setSelectedAction}
+                    onDismiss={handleDismiss}
+                  />
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  {gmChatNode}
                 </div>
               </div>
-            )}
-          </>
+            </div>
+            {isDemo && <DemoMarketingFooter />}
+          </div>
         )}
       </div>
     </>

@@ -74,51 +74,157 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   system: { label: 'System', color: '#6B7280' },
 }
 
+const IMPORTANCE_LABELS: Record<number, string> = {
+  1: 'Background only',
+  2: 'Low priority',
+  3: 'Standard',
+  4: 'High priority',
+  5: 'Critical — always included',
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImportanceDots({ value, interactive, onChange }: { value: number; interactive?: boolean; onChange?: (v: number) => void }) {
+function ImportanceDots({ value, interactive, onChange, showLabel }: {
+  value: number
+  interactive?: boolean
+  onChange?: (v: number) => void
+  showLabel?: boolean
+}) {
   return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map(i => (
-        <button
-          key={i}
-          type="button"
-          disabled={!interactive}
-          onClick={() => onChange?.(i)}
-          className={interactive ? 'cursor-pointer hover:opacity-70' : 'cursor-default'}
-          style={{ padding: 0, border: 'none', background: 'none' }}
-        >
-          <div
-            className="w-1.5 h-1.5"
-            style={{ backgroundColor: i <= value ? '#0063FF' : '#E5E7EB' }}
-          />
-        </button>
-      ))}
+    <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map(i => (
+          <button
+            key={i}
+            type="button"
+            disabled={!interactive}
+            onClick={() => onChange?.(i)}
+            className={interactive ? 'cursor-pointer hover:opacity-70' : 'cursor-default'}
+            style={{ padding: 0, border: 'none', background: 'none' }}
+          >
+            <div
+              className="w-1.5 h-1.5"
+              style={{ backgroundColor: i <= value ? '#0063FF' : '#E5E7EB' }}
+            />
+          </button>
+        ))}
+      </div>
+      {showLabel && (
+        <span className="text-[10px] text-gray-400">{IMPORTANCE_LABELS[value]}</span>
+      )}
     </div>
   )
 }
 
-function MemoryCard({ memory, onEdit, onDelete }: {
+function MemoryCard({ memory, onSave, onDelete }: {
   memory: Memory
-  onEdit: (m: Memory) => void
+  onSave: (id: string, updates: { content: string; category: string; importance: number }) => Promise<boolean>
   onDelete: (id: string) => void
 }) {
+  const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [content, setContent] = useState(memory.content)
+  const [category, setCategory] = useState(memory.category)
+  const [importance, setImportance] = useState(memory.importance)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   const source = SOURCE_LABELS[memory.source] ?? SOURCE_LABELS.system
   const date = new Date(memory.created_at).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
+  const accentColor = CATEGORY_CONFIG[memory.category]?.color ?? '#E5E7EB'
+
+  const handleEditStart = () => {
+    setContent(memory.content)
+    setCategory(memory.category)
+    setImportance(memory.importance)
+    setSaveError(false)
+    setEditing(true)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const handleCancel = () => {
+    setEditing(false)
+    setSaveError(false)
+  }
+
+  const handleSave = async () => {
+    if (!content.trim() || saving) return
+    setSaving(true)
+    setSaveError(false)
+    const ok = await onSave(memory.id, { content: content.trim(), category, importance })
+    setSaving(false)
+    if (ok) {
+      setEditing(false)
+    } else {
+      setSaveError(true)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div
+        className="px-4 py-3 border bg-white"
+        style={{ borderColor: accentColor, borderLeft: `2px solid ${accentColor}` }}
+      >
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          rows={3}
+          className="w-full text-sm text-gray-800 border border-gray-200 px-3 py-2 resize-none focus:outline-none focus:border-blue-400 mb-3"
+        />
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Category</label>
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              className="text-xs text-gray-700 border border-gray-200 px-2 py-1 focus:outline-none focus:border-blue-400"
+            >
+              {CATEGORY_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Importance</label>
+            <ImportanceDots value={importance} interactive onChange={setImportance} showLabel />
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {saveError && <span className="text-[10px] text-red-500">Failed to save</span>}
+            <button
+              onClick={handleCancel}
+              className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors px-2 py-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!content.trim() || saving}
+              className="text-[10px] font-semibold text-white px-3 py-1 transition-opacity hover:opacity-80 disabled:opacity-40"
+              style={{ backgroundColor: '#0063FF' }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
       className="group px-4 py-3 border border-gray-100 bg-white"
-      style={{ borderLeft: `2px solid ${CATEGORY_CONFIG[memory.category]?.color ?? '#E5E7EB'}` }}
+      style={{ borderLeft: `2px solid ${accentColor}` }}
     >
       <div className="flex items-start gap-2">
         <p className="text-sm text-gray-800 leading-relaxed flex-1 whitespace-pre-line">{memory.content}</p>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           <button
-            onClick={() => onEdit(memory)}
+            onClick={handleEditStart}
             className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 transition-colors"
           >
             Edit
@@ -143,7 +249,7 @@ function MemoryCard({ memory, onEdit, onDelete }: {
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2">
-        <ImportanceDots value={memory.importance} />
+        <ImportanceDots value={importance} />
         <span
           className="text-[10px] font-semibold tracking-widest uppercase px-1.5 py-0.5"
           style={{ backgroundColor: `${source.color}15`, color: source.color }}
@@ -161,10 +267,10 @@ function MemoryCard({ memory, onEdit, onDelete }: {
   )
 }
 
-function CategorySection({ category, memories, onEdit, onDelete }: {
+function CategorySection({ category, memories, onSave, onDelete }: {
   category: string
   memories: Memory[]
-  onEdit: (m: Memory) => void
+  onSave: (id: string, updates: { content: string; category: string; importance: number }) => Promise<boolean>
   onDelete: (id: string) => void
 }) {
   const config = categoryConfig(category)
@@ -180,7 +286,7 @@ function CategorySection({ category, memories, onEdit, onDelete }: {
       <p className="text-xs text-gray-400 mb-3">{config.description}</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {memories.map(m => (
-          <MemoryCard key={m.id} memory={m} onEdit={onEdit} onDelete={onDelete} />
+          <MemoryCard key={m.id} memory={m} onSave={onSave} onDelete={onDelete} />
         ))}
       </div>
     </div>
@@ -260,7 +366,7 @@ function MemoryForm({ editing, onSave, onCancel }: {
 
         <div className="flex items-center gap-2">
           <label className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Importance</label>
-          <ImportanceDots value={importance} interactive onChange={setImportance} />
+          <ImportanceDots value={importance} interactive onChange={setImportance} showLabel />
         </div>
 
         <div className="ml-auto">
@@ -404,7 +510,6 @@ export default function MemoriesPanel() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [editing, setEditing] = useState<Memory | null>(null)
 
   const fetchMemories = () => {
     fetch('/api/memories')
@@ -421,35 +526,32 @@ export default function MemoriesPanel() {
 
   useEffect(() => { fetchMemories() }, [])
 
-  const handleSave = async (data: { content: string; category: string; importance: number; id?: string }) => {
-    if (data.id) {
-      // Edit
-      const res = await fetch('/api/memories', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: data.id, content: data.content, category: data.category, importance: data.importance }),
-      })
-      if (res.ok) {
-        setMemories(prev => prev.map(m =>
-          m.id === data.id ? { ...m, content: data.content, category: data.category, importance: data.importance } : m
-        ))
-      }
-    } else {
-      // Create
-      const res = await fetch('/api/memories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: data.content, category: data.category, importance: data.importance }),
-      })
-      if (res.ok) {
-        const json = await res.json()
-        if (json.memory) {
-          setMemories(prev => [json.memory, ...prev])
-        }
+  const handleSave = async (data: { content: string; category: string; importance: number }) => {
+    const res = await fetch('/api/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: data.content, category: data.category, importance: data.importance }),
+    })
+    if (res.ok) {
+      const json = await res.json()
+      if (json.memory) {
+        setMemories(prev => [json.memory, ...prev])
       }
     }
     setShowForm(false)
-    setEditing(null)
+  }
+
+  const handleCardSave = async (id: string, updates: { content: string; category: string; importance: number }): Promise<boolean> => {
+    const res = await fetch('/api/memories', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...updates }),
+    })
+    if (res.ok) {
+      setMemories(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m))
+      return true
+    }
+    return false
   }
 
   const handleDelete = async (id: string) => {
@@ -463,14 +565,8 @@ export default function MemoriesPanel() {
     }
   }
 
-  const handleEdit = (memory: Memory) => {
-    setEditing(memory)
-    setShowForm(true)
-  }
-
   const handleCancel = () => {
     setShowForm(false)
-    setEditing(null)
   }
 
   // Group by category: known ones first in display order, unknowns after
@@ -497,7 +593,7 @@ export default function MemoriesPanel() {
         </div>
         {!showForm && !loading && (
           <button
-            onClick={() => { setEditing(null); setShowForm(true) }}
+            onClick={() => setShowForm(true)}
             className="text-xs font-medium px-3 py-1.5 text-white transition-opacity hover:opacity-80"
             style={{ backgroundColor: '#0063FF' }}
           >
@@ -510,7 +606,7 @@ export default function MemoriesPanel() {
         <SuggestionsSection />
 
         {showForm && (
-          <MemoryForm editing={editing} onSave={handleSave} onCancel={handleCancel} />
+          <MemoryForm editing={null} onSave={handleSave} onCancel={handleCancel} />
         )}
 
         {loading && (
@@ -541,7 +637,7 @@ export default function MemoriesPanel() {
         )}
 
         {!loading && Object.entries(grouped).map(([cat, mems]) => (
-          <CategorySection key={cat} category={cat} memories={mems} onEdit={handleEdit} onDelete={handleDelete} />
+          <CategorySection key={cat} category={cat} memories={mems} onSave={handleCardSave} onDelete={handleDelete} />
         ))}
       </div>
     </div>

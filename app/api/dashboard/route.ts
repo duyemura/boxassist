@@ -5,6 +5,35 @@ import { getSession, getTier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountForUser } from '@/lib/db/accounts'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function computeNextRun(agent: { trigger_mode?: string; cron_schedule?: string; run_hour?: number }): string | null {
+  if (agent.trigger_mode !== 'cron') return null
+  const now = new Date()
+  const hour = agent.run_hour ?? 9
+
+  if (!agent.cron_schedule || agent.cron_schedule === 'daily') {
+    const next = new Date()
+    next.setHours(hour, 0, 0, 0)
+    if (next <= now) next.setDate(next.getDate() + 1)
+    return next.toISOString()
+  }
+  if (agent.cron_schedule === 'hourly') {
+    const next = new Date(now)
+    next.setMinutes(0, 0, 0)
+    next.setHours(next.getHours() + 1)
+    return next.toISOString()
+  }
+  if (agent.cron_schedule === 'weekly') {
+    const next = new Date()
+    next.setHours(hour, 0, 0, 0)
+    const daysUntilMonday = (8 - next.getDay()) % 7 || 7
+    if (next <= now) next.setDate(next.getDate() + daysUntilMonday)
+    return next.toISOString()
+  }
+  return null
+}
+
 export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -105,6 +134,11 @@ export async function GET(req: NextRequest) {
       pendingActions,
       monthlyRunCount: 14,
       recentEvents: [],
+      stats: {
+        activeAgents: (agents || []).filter((a: any) => a.is_active).length,
+        pendingCount: pendingActions.length,
+        lastRunAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
       isDemo: true,
     })
   }
@@ -145,13 +179,16 @@ export async function GET(req: NextRequest) {
       const agentAutos = autoMap.get(agent.id) ?? []
       const cronAuto = agentAutos.find((a: any) => a.trigger_type === 'cron')
       const eventAuto = agentAutos.find((a: any) => a.trigger_type === 'event')
-      return {
+      const merged = {
         ...agent,
-        // Merge automation data so frontend keeps working
         automations: agentAutos,
         cron_schedule: cronAuto?.cron_schedule ?? agent.cron_schedule,
         run_hour: cronAuto?.run_hour ?? agent.run_hour,
         trigger_event: eventAuto?.event_type ?? agent.trigger_event,
+      }
+      return {
+        ...merged,
+        next_run_at: computeNextRun(merged),
       }
     })
   }
@@ -233,6 +270,19 @@ export async function GET(req: NextRequest) {
     }
   }
   
+  // Annotate agents with pending task counts
+  if (pendingActions.length > 0) {
+    const countByAgent = new Map<string, number>()
+    for (const action of pendingActions) {
+      const key = action.assignedAgent ?? 'gm'
+      countByAgent.set(key, (countByAgent.get(key) ?? 0) + 1)
+    }
+    agents = agents.map((agent: any) => ({
+      ...agent,
+      pending_count: countByAgent.get(agent.id) ?? countByAgent.get(agent.skill_type) ?? 0,
+    }))
+  }
+
   // Get monthly run count
   const startOfMonth = new Date()
   startOfMonth.setDate(1)
@@ -260,6 +310,12 @@ export async function GET(req: NextRequest) {
     recentEvents = data || []
   }
   
+  const stats = {
+    activeAgents: agents.filter((a: any) => a.is_active).length,
+    pendingCount: pendingActions.length,
+    lastRunAt: recentRuns[0]?.created_at ?? null,
+  }
+
   return NextResponse.json({
     user,
     account,
@@ -269,6 +325,7 @@ export async function GET(req: NextRequest) {
     pendingActions,
     monthlyRunCount,
     recentEvents,
+    stats,
     isDemo: false,
   })
 }

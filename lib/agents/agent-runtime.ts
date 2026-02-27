@@ -10,8 +10,9 @@
  */
 
 import type { AccountSnapshot, AccountInsight, InsightType } from './GMAgent'
-import { loadSkillPrompt, loadBaseContext } from '../skill-loader'
+import { loadSkillPrompt, loadBaseContext, loadSkillIndex } from '../skill-loader'
 import { getMemoriesForPrompt } from '../db/memories'
+import { getSkillCustomizations } from '../db/skill-customizations'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +86,18 @@ export async function runAgentAnalysis(
     // No matching skill — the AI will work with base context + data
   }
 
+  // Layer 2b: Per-account skill customization (owner instructions for this skill)
+  try {
+    const customizations = await getSkillCustomizations(config.accountId)
+    const skillId = await resolveSkillId(config.skillType)
+    const customNote = skillId ? customizations.get(skillId) : undefined
+    if (customNote && skillContext) {
+      skillContext += `\n\n## Business Instructions for This Skill\n${customNote}`
+    }
+  } catch {
+    // Non-fatal — customizations are optional
+  }
+
   // Layer 3: Business memories
   let memories = ''
   try {
@@ -128,24 +141,41 @@ export async function runAgentAnalysis(
 export function formatSnapshotCompact(snapshot: AccountSnapshot): string {
   const now = new Date()
 
-  const members = snapshot.members.map(m => {
-    const daysSince = m.lastCheckinAt
-      ? Math.floor((now.getTime() - new Date(m.lastCheckinAt).getTime()) / 86_400_000)
-      : null
-    return {
-      id: m.id,
-      name: m.name,
-      email: m.email,
-      status: m.status,
-      memberSince: m.memberSince,
-      monthlyRevenue: m.monthlyRevenue,
-      daysSinceLastVisit: daysSince,
-      recentCheckins30d: m.recentCheckinsCount,
-      previousCheckins30d: m.previousCheckinsCount,
-      renewalDate: m.renewalDate ?? null,
-      membershipType: m.membershipType,
+  // Segment people by status so the AI sees each group clearly
+  const activeMembers: FormattedMember[] = []
+  const prospects: FormattedMember[] = []
+  const exMembers: FormattedMember[] = []
+
+  for (const m of snapshot.members) {
+    const formatted = formatMember(m, now)
+    if (m.status === 'prospect') {
+      prospects.push(formatted)
+    } else if (m.status === 'cancelled') {
+      exMembers.push(formatted)
+    } else {
+      activeMembers.push(formatted)
     }
-  })
+  }
+
+  // Also include any recentLeads that aren't already in prospects
+  const existingProspectIds = new Set(prospects.map(p => p.id))
+  for (const l of snapshot.recentLeads) {
+    if (!existingProspectIds.has(l.id)) {
+      prospects.push({
+        id: l.id,
+        name: l.name,
+        email: l.email,
+        status: 'prospect',
+        memberSince: l.createdAt,
+        monthlyRevenue: 0,
+        daysSinceLastVisit: null,
+        recentCheckins30d: 0,
+        previousCheckins30d: 0,
+        renewalDate: null,
+        membershipType: null,
+      })
+    }
+  }
 
   const paymentIssues = snapshot.paymentEvents
     .filter(p => p.eventType === 'payment_failed')
@@ -157,32 +187,82 @@ export function formatSnapshotCompact(snapshot: AccountSnapshot): string {
       failedAt: p.failedAt,
     }))
 
-  const leads = snapshot.recentLeads
-    .filter(l => l.status === 'new' || l.status === 'contacted')
-    .map(l => ({
-      id: l.id,
-      name: l.name,
-      email: l.email,
-      createdAt: l.createdAt,
-      lastContactAt: l.lastContactAt,
-      status: l.status,
-    }))
+  const parts: string[] = []
+  parts.push(`Business: ${snapshot.accountName ?? 'Business'} (${activeMembers.length} active, ${exMembers.length} ex-members, ${prospects.length} prospects)\nSnapshot captured: ${snapshot.capturedAt}`)
 
-  let prompt = `Business: ${snapshot.accountName ?? 'Business'} (${members.length} members)\nSnapshot captured: ${snapshot.capturedAt}\n`
+  parts.push(`## Active Members:\n${JSON.stringify(activeMembers, null, 2)}`)
 
-  prompt += `\n## Members:\n${JSON.stringify(members, null, 2)}`
+  if (exMembers.length > 0) {
+    parts.push(`## Ex-Members (cancelled, potential win-back/reactivation):\n${JSON.stringify(exMembers, null, 2)}`)
+  }
+
+  if (prospects.length > 0) {
+    parts.push(`## Prospects / Leads (never converted to members):\n${JSON.stringify(prospects, null, 2)}`)
+  }
 
   if (paymentIssues.length > 0) {
-    prompt += `\n\n## Payment Issues:\n${JSON.stringify(paymentIssues, null, 2)}`
+    parts.push(`## Payment Issues:\n${JSON.stringify(paymentIssues, null, 2)}`)
   }
 
-  if (leads.length > 0) {
-    prompt += `\n\n## Open Leads:\n${JSON.stringify(leads, null, 2)}`
+  parts.push('Analyze and return insights for people who need attention.')
+
+  return parts.join('\n\n')
+}
+
+// ── Formatting helpers ──────────────────────────────────────────────────────
+
+interface FormattedMember {
+  id: string
+  name: string
+  email: string
+  status: string
+  memberSince: string
+  monthlyRevenue: number
+  daysSinceLastVisit: number | null
+  recentCheckins30d: number
+  previousCheckins30d: number
+  renewalDate: string | null
+  membershipType: string | null
+}
+
+function formatMember(m: AccountSnapshot['members'][number], now: Date): FormattedMember {
+  const daysSince = m.lastCheckinAt
+    ? Math.floor((now.getTime() - new Date(m.lastCheckinAt).getTime()) / 86_400_000)
+    : null
+  return {
+    id: m.id,
+    name: m.name,
+    email: m.email,
+    status: m.status,
+    memberSince: m.memberSince,
+    monthlyRevenue: m.monthlyRevenue,
+    daysSinceLastVisit: daysSince,
+    recentCheckins30d: m.recentCheckinsCount,
+    previousCheckins30d: m.previousCheckinsCount,
+    renewalDate: m.renewalDate ?? null,
+    membershipType: m.membershipType,
   }
+}
 
-  prompt += `\n\nAnalyze and return insights for people who need attention.`
+// ── Skill ID resolution ──────────────────────────────────────────────────────
 
-  return prompt
+/**
+ * Resolve a skill_type (e.g. 'at_risk_detector') to its YAML skill id
+ * (e.g. 'churn-risk') so we can look up per-account customizations.
+ * Returns null if no matching skill is found.
+ */
+async function resolveSkillId(skillType: string): Promise<string | null> {
+  try {
+    const skills = await loadSkillIndex()
+    const skill = skills.find(s =>
+      s.id === skillType ||
+      s.filename === `${skillType}.md` ||
+      s.triggers.includes(skillType)
+    )
+    return skill?.id ?? null
+  } catch {
+    return null
+  }
 }
 
 // ── Response parsing ─────────────────────────────────────────────────────────
