@@ -63,6 +63,69 @@ function toolDisplayName(name: string): string {
   return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+// ── Simple markdown renderer ────────────────────────────────────────────────
+
+function InlineMarkdown({ text }: { text: string }): React.ReactElement {
+  const parts: React.ReactNode[] = []
+  let remaining = text
+  let key = 0
+
+  while (remaining.length > 0) {
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
+    if (boldMatch && boldMatch.index !== undefined) {
+      if (boldMatch.index > 0) parts.push(remaining.slice(0, boldMatch.index))
+      parts.push(<strong key={key++} className="font-semibold">{boldMatch[1]}</strong>)
+      remaining = remaining.slice(boldMatch.index + boldMatch[0].length)
+    } else {
+      parts.push(remaining)
+      break
+    }
+  }
+
+  return <>{parts}</>
+}
+
+function SimpleMarkdown({ text }: { text: string }) {
+  const lines = text.split('\n')
+
+  return (
+    <div className="space-y-0.5">
+      {lines.map((line, i) => {
+        if (line.startsWith('### ')) {
+          return <p key={i} className="font-semibold text-sm mt-2 mb-0.5"><InlineMarkdown text={line.slice(4)} /></p>
+        }
+        if (line.startsWith('## ')) {
+          return <p key={i} className="font-semibold text-sm mt-2 mb-0.5"><InlineMarkdown text={line.slice(3)} /></p>
+        }
+        if (line.trim() === '---') {
+          return <hr key={i} className="border-gray-100 my-2" />
+        }
+        if (/^[-*] /.test(line)) {
+          return (
+            <div key={i} className="flex gap-1.5 pl-1">
+              <span className="text-gray-300 flex-shrink-0">•</span>
+              <span><InlineMarkdown text={line.slice(2)} /></span>
+            </div>
+          )
+        }
+        const numMatch = line.match(/^(\d+)\.\s(.+)/)
+        if (numMatch) {
+          return (
+            <div key={i} className="flex gap-1.5 pl-1">
+              <span className="text-gray-400 flex-shrink-0">{numMatch[1]}.</span>
+              <span><InlineMarkdown text={numMatch[2]} /></span>
+            </div>
+          )
+        }
+        if (line.trim() === '') {
+          return <div key={i} className="h-1.5" />
+        }
+        return <p key={i}><InlineMarkdown text={line} /></p>
+      })}
+    </div>
+  )
+}
+
 // ── ThinkingDots ─────────────────────────────────────────────────────────────
 
 function ThinkingDots() {
@@ -366,15 +429,17 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
 
             case 'done':
               setStatus('completed')
-              assistantBuffer = ''
-              if (event.summary) {
-                setMessages(prev => [...prev, {
-                  id: `done-${Date.now()}`,
-                  role: 'system',
-                  content: event.summary!,
-                  timestamp: new Date().toISOString(),
-                }])
+              // Finalize the streaming assistant message ID so it's stable
+              if (assistantBuffer) {
+                setMessages(prev => {
+                  const last = prev[prev.length - 1]
+                  if (last?.role === 'assistant' && last.id.startsWith('streaming-')) {
+                    return [...prev.slice(0, -1), { ...last, id: `msg-${Date.now()}` }]
+                  }
+                  return prev
+                })
               }
+              assistantBuffer = ''
               onComplete?.()
               break
 
@@ -626,15 +691,10 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
           if (msg.role === 'assistant') {
             return (
               <div key={msg.id} className="flex justify-start mb-3">
-                <div className="max-w-[80%]">
+                <div className="max-w-[85%]">
                   <div className="bg-white border border-gray-100 px-4 py-3 text-sm text-gray-900 leading-relaxed"
                        style={{ borderRadius: '2px 12px 12px 12px' }}>
-                    {msg.content.split('\n').map((line, i) => (
-                      <span key={i}>
-                        {line}
-                        {i < msg.content.split('\n').length - 1 && <br />}
-                      </span>
-                    ))}
+                    <SimpleMarkdown text={msg.content} />
                   </div>
                   <p className="text-[10px] text-gray-300 mt-1">{formatTime(msg.timestamp)}</p>
                 </div>

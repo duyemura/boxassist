@@ -622,40 +622,48 @@ function DashboardContent() {
               </div>
               {/* Right col: Scheduled Runs + Quick Queue + Chat */}
               <div className="flex-[2] min-w-0 flex flex-col overflow-hidden">
-                <ScheduledRuns agents={agentsWithStats} />
-                <div className="border-b border-gray-100 flex-shrink-0">
-                  <QuickQueue
-                    actions={uniqueActions}
-                    onSelect={setSelectedAction}
-                    onDismiss={handleDismiss}
-                  />
-                </div>
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {chatSession ? (
-                    <div className="flex flex-col h-full">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 flex-shrink-0">
+                {chatSession ? (
+                  <div className="flex flex-col h-full">
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 flex-shrink-0"
+                         style={{ backgroundColor: 'rgba(0,99,255,0.03)' }}>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 flex-shrink-0" style={{ backgroundColor: '#0063FF' }} />
                         <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
-                          Session: {chatSession.agentName}
+                          {chatSession.agentName}
                         </p>
-                        <button
-                          onClick={() => setChatSession(null)}
-                          className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
-                        >
-                          Close
-                        </button>
                       </div>
-                      <div className="flex-1 min-h-0">
-                        <AgentChat
-                          key={`${chatSession.agentId}-${chatSession.startedAt}`}
-                          accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
-                          agentId={chatSession.agentId}
-                          onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
-                          onComplete={() => {}}
-                        />
-                      </div>
+                      <button
+                        onClick={() => setChatSession(null)}
+                        className="text-[10px] text-gray-400 hover:text-gray-700 px-2 py-1 border border-gray-200 transition-colors"
+                      >
+                        ← Back
+                      </button>
                     </div>
-                  ) : gmChatNode}
-                </div>
+                    <div className="flex-1 min-h-0">
+                      <AgentChat
+                        key={`${chatSession.agentId}-${chatSession.startedAt}`}
+                        accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
+                        agentId={chatSession.agentId}
+                        onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
+                        onComplete={() => {}}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <ScheduledRuns agents={agentsWithStats} />
+                    <div className="border-b border-gray-100 flex-shrink-0">
+                      <QuickQueue
+                        actions={uniqueActions}
+                        onSelect={setSelectedAction}
+                        onDismiss={handleDismiss}
+                      />
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-hidden">
+                      {gmChatNode}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             {isDemo && <DemoMarketingFooter />}
