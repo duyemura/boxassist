@@ -407,30 +407,41 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
       timestamp: new Date().toISOString(),
     }])
 
-    const response = await fetch('/api/agents/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'start',
-        goal,
-        agentId,
-        mode,
-        tools: ['data', 'action', 'output', 'learning'],
-      }),
-    })
+    try {
+      const response = await fetch('/api/agents/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start',
+          goal,
+          agentId,
+          mode,
+          tools: ['data', 'action', 'output', 'learning'],
+        }),
+      })
 
-    if (!response.ok || !response.body) {
+      if (!response.ok || !response.body) {
+        const errBody = await response.text().catch(() => '')
+        setStatus('failed')
+        setMessages(prev => [...prev, {
+          id: `err-${Date.now()}`,
+          role: 'system',
+          content: `Failed to start session${errBody ? `: ${errBody.slice(0, 200)}` : ''}`,
+          timestamp: new Date().toISOString(),
+        }])
+        return
+      }
+
+      await consumeSSE(response)
+    } catch (err: any) {
       setStatus('failed')
       setMessages(prev => [...prev, {
         id: `err-${Date.now()}`,
         role: 'system',
-        content: 'Failed to start session',
+        content: `Connection error: ${err?.message ?? 'unknown'}`,
         timestamp: new Date().toISOString(),
       }])
-      return
     }
-
-    await consumeSSE(response)
   }, [agentId, mode, consumeSSE])
 
   const sendMessage = useCallback(async (content: string) => {

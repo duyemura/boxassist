@@ -35,9 +35,13 @@ vi.mock('@/lib/supabase', () => ({
 vi.mock('@/lib/db/accounts', () => ({
   getAccountForUser: vi.fn().mockResolvedValue({
     id: 'acct-001',
-    pushpress_api_key: 'test-key',
+    pushpress_api_key: 'encrypted-test-key',
     pushpress_company_id: 'test-company',
   }),
+}))
+
+vi.mock('@/lib/encrypt', () => ({
+  decrypt: vi.fn().mockReturnValue('test-key'),
 }))
 
 // ── Import after mocks ──────────────────────────────────────────────────

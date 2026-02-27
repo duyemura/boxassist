@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { decrypt } from '@/lib/encrypt'
 import {
   startSession,
   resumeSession,
@@ -98,12 +99,22 @@ export async function POST(req: NextRequest) {
   }
 
   // Decrypt API key
-  const apiKey = account.pushpress_api_key
+  const rawKey = account.pushpress_api_key
   const companyId = account.pushpress_company_id ?? ''
 
-  if (!apiKey) {
+  if (!rawKey) {
     return new Response(JSON.stringify({ error: 'PushPress API key not configured' }), {
       status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  let apiKey: string
+  try {
+    apiKey = decrypt(rawKey)
+  } catch {
+    return new Response(JSON.stringify({ error: 'Failed to decrypt API key' }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' },
     })
   }

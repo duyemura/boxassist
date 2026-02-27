@@ -15,6 +15,7 @@ import AgentRoster from '@/components/AgentRoster'
 import ScheduledRuns from '@/components/ScheduledRuns'
 import QuickQueue from '@/components/QuickQueue'
 import SkillsPanel from '@/components/SkillsPanel'
+import ImprovementsPanel from '@/components/ImprovementsPanel'
 import AgentChat from '@/components/AgentChat'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -158,9 +159,9 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'settings'>('gm')
+  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'settings'>('gm')
   const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
-  const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string } | null>(null)
+  const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string; startedAt: number } | null>(null)
 
   // Welcome modal for demo — shows once per session
   const [showWelcome, setShowWelcome] = useState(false)
@@ -497,6 +498,8 @@ function DashboardContent() {
           ? <MemoriesPanel />
           : activeSection === 'skills'
           ? <SkillsPanel />
+          : activeSection === 'improvements'
+          ? <ImprovementsPanel />
           : (
             <>
               <CommandStats
@@ -585,6 +588,10 @@ function DashboardContent() {
           <div className="flex flex-col h-full overflow-hidden">
             <SkillsPanel />
           </div>
+        ) : activeSection === 'improvements' ? (
+          <div className="flex flex-col h-full overflow-hidden">
+            <ImprovementsPanel />
+          </div>
         ) : (
           // ── Command Center ──────────────────────────────────────────────────
           <div className="flex flex-col h-full overflow-hidden">
@@ -610,7 +617,7 @@ function DashboardContent() {
                     if (data) setData({ ...data, agents: (data.agents ?? []).filter((a: any) => a.id !== agentId) })
                   }}
                   onAddAgent={() => { setEditingAgent(null); setActiveSection('agents') }}
-                  onChat={agent => setChatSession({ agentId: agent.id, agentName: agent.name })}
+                  onChat={agent => setChatSession({ agentId: agent.id, agentName: agent.name, startedAt: Date.now() })}
                 />
               </div>
               {/* Right col: Scheduled Runs + Quick Queue + Chat */}
@@ -639,6 +646,7 @@ function DashboardContent() {
                       </div>
                       <div className="flex-1 min-h-0">
                         <AgentChat
+                          key={`${chatSession.agentId}-${chatSession.startedAt}`}
                           accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
                           agentId={chatSession.agentId}
                           onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
@@ -735,7 +743,7 @@ function DashboardContent() {
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         activeSection={activeSection}
-        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'settings')}
+        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'settings')}
         slidePanel={
           selectedAction ? (
             <ActionSlidePanel
