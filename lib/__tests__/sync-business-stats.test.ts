@@ -64,11 +64,6 @@ const baseStats: BusinessStats = {
   leads: 6,
   newLast30Days: 8,
   cancelledLast30Days: 3,
-  totalCheckins30Days: 850,
-  checkinsPerMemberPerWeek: 2.3,
-  attendanceTrend: 'stable',
-  sampleSize: 30,
-  classNames: ['CrossFit', 'Open Gym', 'Barbell Club'],
   estimatedMRR: 14700,
   syncedAt: '2026-02-26T12:00:00.000Z',
 }
@@ -101,21 +96,6 @@ describe('formatStatsForMemory', () => {
     expect(result).toContain('Last 30 days: +8 new, -3 cancelled')
   })
 
-  it('shows total checkins', () => {
-    const result = formatStatsForMemory(baseStats)
-    expect(result).toContain('Checkins (last 30 days): ~850 total')
-  })
-
-  it('shows per-member attendance with trend', () => {
-    const result = formatStatsForMemory(baseStats)
-    expect(result).toContain('Avg per member: 2.3 visits/week (trend: stable)')
-  })
-
-  it('lists class/program names', () => {
-    const result = formatStatsForMemory(baseStats)
-    expect(result).toContain('Programs: CrossFit, Open Gym, Barbell Club')
-  })
-
   it('formats MRR in $k for large amounts', () => {
     const result = formatStatsForMemory(baseStats)
     expect(result).toContain('Estimated MRR: $15k/mo')
@@ -136,12 +116,6 @@ describe('formatStatsForMemory', () => {
     expect(result).toContain('Members: 121 total (98 active, 12 cancelled, 6 leads)')
   })
 
-  it('omits attendance when no sample', () => {
-    const result = formatStatsForMemory({ ...baseStats, checkinsPerMemberPerWeek: null, totalCheckins30Days: 0 })
-    expect(result).not.toContain('visits/week')
-    expect(result).not.toContain('Checkins (last 30 days)')
-  })
-
   it('omits 30-day changes when both zero', () => {
     const result = formatStatsForMemory({ ...baseStats, newLast30Days: 0, cancelledLast30Days: 0 })
     expect(result).not.toContain('Last 30 days')
@@ -152,8 +126,10 @@ describe('formatStatsForMemory', () => {
     expect(result).not.toContain('Location')
   })
 
-  it('omits programs when empty', () => {
-    const result = formatStatsForMemory({ ...baseStats, classNames: [] })
+  it('does not include attendance data (moved to schedule)', () => {
+    const result = formatStatsForMemory(baseStats)
+    expect(result).not.toContain('Checkins')
+    expect(result).not.toContain('visits/week')
     expect(result).not.toContain('Programs')
   })
 
@@ -177,10 +153,10 @@ describe('writeStatsFromSnapshot', () => {
     const snapshot = {
       accountName: 'Test Gym',
       members: [
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 8, previousCheckinsCount: 6, monthlyRevenue: 150 },
-        { status: 'active', memberSince: '2026-02-15', recentCheckinsCount: 3, previousCheckinsCount: 0, monthlyRevenue: 150 },
-        { status: 'cancelled', memberSince: '2024-06-01', recentCheckinsCount: 0, previousCheckinsCount: 0, monthlyRevenue: 0 },
-        { status: 'prospect', memberSince: '2026-02-20', recentCheckinsCount: 0, previousCheckinsCount: 0, monthlyRevenue: 0 },
+        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
+        { status: 'active', memberSince: '2026-02-15', monthlyRevenue: 150 },
+        { status: 'cancelled', memberSince: '2024-06-01', monthlyRevenue: 0 },
+        { status: 'prospect', memberSince: '2026-02-20', monthlyRevenue: 0 },
       ],
     }
 
@@ -193,45 +169,35 @@ describe('writeStatsFromSnapshot', () => {
     expect(content).toContain('1 leads')
   })
 
-  it('computes attendance trend from checkin data', async () => {
-    const snapshot = {
-      accountName: 'Test Gym',
-      members: [
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 4, previousCheckinsCount: 10, monthlyRevenue: 150 },
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 3, previousCheckinsCount: 8, monthlyRevenue: 150 },
-      ],
-    }
-
-    await writeStatsFromSnapshot('acct-1', snapshot, 150)
-    const content = mockInsert.mock.calls[0][0].content
-    expect(content).toContain('trend: declining')
-  })
-
-  it('extrapolates total checkins from sample', async () => {
-    const snapshot = {
-      accountName: 'Test Gym',
-      members: [
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 10, previousCheckinsCount: 8, monthlyRevenue: 150 },
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 12, previousCheckinsCount: 10, monthlyRevenue: 150 },
-      ],
-    }
-
-    await writeStatsFromSnapshot('acct-1', snapshot, 150)
-    const content = mockInsert.mock.calls[0][0].content
-    // 2 active members sampled, avg 11 checkins each, 2 active total → ~22
-    expect(content).toContain('Checkins (last 30 days): ~22 total')
-  })
-
   it('includes estimated MRR', async () => {
     const snapshot = {
       accountName: 'Test Gym',
       members: [
-        { status: 'active', memberSince: '2025-01-01', recentCheckinsCount: 5, previousCheckinsCount: 5, monthlyRevenue: 150 },
+        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
       ],
     }
 
     await writeStatsFromSnapshot('acct-1', snapshot, 200)
     const content = mockInsert.mock.calls[0][0].content
     expect(content).toContain('Estimated MRR: $200/mo')
+  })
+
+  it('counts leads and cancelled separately', async () => {
+    const snapshot = {
+      accountName: 'Test Gym',
+      members: [
+        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
+        { status: 'cancelled', memberSince: '2024-01-01', monthlyRevenue: 0 },
+        { status: 'prospect', memberSince: '2026-02-01', monthlyRevenue: 0 },
+        { status: 'paused', memberSince: '2025-06-01', monthlyRevenue: 100 },
+      ],
+    }
+
+    await writeStatsFromSnapshot('acct-1', snapshot, 150)
+    const content = mockInsert.mock.calls[0][0].content
+    expect(content).toContain('1 active')
+    expect(content).toContain('1 paused')
+    expect(content).toContain('1 cancelled')
+    expect(content).toContain('1 leads')
   })
 })

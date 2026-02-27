@@ -8,6 +8,7 @@ import { decrypt } from '@/lib/encrypt'
 import { createPushPressClient } from '@/lib/pushpress'
 import { recommend } from '@/lib/setup-recommend'
 import { writeStatsFromSnapshot } from '@/lib/sync-business-stats'
+import { writeScheduleFromSnapshot } from '@/lib/sync-schedule'
 import type { AccountSnapshot, MemberData, PaymentEvent } from '@/lib/agents/GMAgent'
 
 export async function POST(req: NextRequest) {
@@ -49,8 +50,11 @@ export async function POST(req: NextRequest) {
 
     console.log('[setup/recommend] Recommendation:', recommendation.agentType, '-', recommendation.name)
 
-    // Write business stats memory with accurate data from paginated fetch
-    await writeStatsFromSnapshot(accountId, snapshot, avgPrice)
+    // Write business stats + schedule memories with accurate data from paginated fetch
+    await Promise.all([
+      writeStatsFromSnapshot(accountId, snapshot, avgPrice),
+      writeScheduleFromSnapshot(accountId, snapshot),
+    ])
 
     return NextResponse.json({
       recommendation,

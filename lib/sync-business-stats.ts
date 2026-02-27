@@ -45,15 +45,6 @@ export interface BusinessStats {
   newLast30Days: number
   cancelledLast30Days: number
 
-  // Attendance
-  totalCheckins30Days: number     // total checkins across all sampled members (30d)
-  checkinsPerMemberPerWeek: number | null  // avg per active member per week
-  attendanceTrend: 'improving' | 'stable' | 'declining' | 'unknown'
-  sampleSize: number              // how many members we sampled for attendance
-
-  // Classes / programs
-  classNames: string[]            // unique class/program names seen in checkins
-
   // Revenue
   estimatedMRR: number
 
@@ -79,7 +70,6 @@ export async function syncBusinessStats(
   const client = createPushPressClient(apiKey, companyId)
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
   const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
 
   // ── Fetch company info ──────────────────────────────────────────────────
@@ -108,7 +98,6 @@ export async function syncBusinessStats(
 
   let active = 0, paused = 0, cancelled = 0, leads = 0
   let newLast30Days = 0, cancelledLast30Days = 0
-  const activeCustomerIds: string[] = []
 
   for (const c of customers) {
     const status = mapStatus(c)
@@ -123,65 +112,8 @@ export async function syncBusinessStats(
     if (status === 'paused') { paused++; continue }
 
     active++
-    activeCustomerIds.push(c.id)
     if (memberSince >= thirtyDaysAgo) newLast30Days++
   }
-
-  // ── Sample attendance from active members ───────────────────────────────
-
-  const SAMPLE_SIZE = Math.min(activeCustomerIds.length, 30)
-  let totalRecentCheckins = 0
-  let totalPreviousCheckins = 0
-  let sampledCount = 0
-  const classNameSet = new Set<string>()
-
-  for (let i = 0; i < SAMPLE_SIZE; i++) {
-    try {
-      const resp = await client.fetch(`/checkins/class?customer=${activeCustomerIds[i]}&limit=50`)
-      const checkins: any[] =
-        resp?.data?.resultArray ??
-        resp?.data ??
-        (Array.isArray(resp) ? resp : [])
-
-      let recent = 0
-      let previous = 0
-      for (const chk of checkins) {
-        const d = new Date(chk.date || chk.checkedInAt || chk.created_at || chk.createdAt)
-        if (isNaN(d.getTime())) continue
-        if (d >= thirtyDaysAgo) recent++
-        else if (d >= sixtyDaysAgo) previous++
-
-        // Capture class/program names
-        const className = chk.name || chk.className || chk.class_name || chk.title
-        if (className && typeof className === 'string') classNameSet.add(className)
-      }
-
-      totalRecentCheckins += recent
-      totalPreviousCheckins += previous
-      sampledCount++
-    } catch {
-      // Skip failures
-    }
-  }
-
-  // ── Compute metrics ─────────────────────────────────────────────────────
-
-  const checkinsPerMemberPerWeek = sampledCount > 0
-    ? Math.round((totalRecentCheckins / sampledCount / 4.3) * 10) / 10
-    : null
-
-  let attendanceTrend: BusinessStats['attendanceTrend'] = 'unknown'
-  if (sampledCount > 0 && totalPreviousCheckins > 0) {
-    const ratio = totalRecentCheckins / totalPreviousCheckins
-    if (ratio > 1.15) attendanceTrend = 'improving'
-    else if (ratio < 0.85) attendanceTrend = 'declining'
-    else attendanceTrend = 'stable'
-  }
-
-  // Extrapolate total 30d checkins from sample
-  const totalCheckins30Days = sampledCount > 0 && active > 0
-    ? Math.round((totalRecentCheckins / sampledCount) * active)
-    : 0
 
   const stats: BusinessStats = {
     businessInfo,
@@ -192,11 +124,6 @@ export async function syncBusinessStats(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    totalCheckins30Days,
-    checkinsPerMemberPerWeek,
-    attendanceTrend,
-    sampleSize: sampledCount,
-    classNames: Array.from(classNameSet).slice(0, 20), // cap at 20
     estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
@@ -250,8 +177,6 @@ export async function writeStatsFromSnapshot(
     members: Array<{
       status: string
       memberSince: string
-      recentCheckinsCount: number
-      previousCheckinsCount: number
       monthlyRevenue: number
     }>
   },
@@ -262,7 +187,6 @@ export async function writeStatsFromSnapshot(
 
   let active = 0, paused = 0, cancelled = 0, leads = 0
   let newLast30Days = 0, cancelledLast30Days = 0
-  let totalRecent = 0, totalPrevious = 0, sampledCount = 0
 
   for (const m of snapshot.members) {
     const memberSince = new Date(m.memberSince)
@@ -277,29 +201,7 @@ export async function writeStatsFromSnapshot(
 
     active++
     if (!isNaN(memberSince.getTime()) && memberSince >= thirtyDaysAgo) newLast30Days++
-
-    if (m.recentCheckinsCount > 0 || m.previousCheckinsCount > 0) {
-      totalRecent += m.recentCheckinsCount
-      totalPrevious += m.previousCheckinsCount
-      sampledCount++
-    }
   }
-
-  const checkinsPerMemberPerWeek = sampledCount > 0
-    ? Math.round((totalRecent / sampledCount / 4.3) * 10) / 10
-    : null
-
-  let attendanceTrend: BusinessStats['attendanceTrend'] = 'unknown'
-  if (sampledCount > 0 && totalPrevious > 0) {
-    const ratio = totalRecent / totalPrevious
-    if (ratio > 1.15) attendanceTrend = 'improving'
-    else if (ratio < 0.85) attendanceTrend = 'declining'
-    else attendanceTrend = 'stable'
-  }
-
-  const totalCheckins30Days = sampledCount > 0 && active > 0
-    ? Math.round((totalRecent / sampledCount) * active)
-    : 0
 
   const stats: BusinessStats = {
     businessInfo: { name: snapshot.accountName },
@@ -310,11 +212,6 @@ export async function writeStatsFromSnapshot(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    totalCheckins30Days,
-    checkinsPerMemberPerWeek,
-    attendanceTrend,
-    sampleSize: sampledCount,
-    classNames: [], // not available from snapshot
     estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
@@ -350,19 +247,6 @@ export function formatStatsForMemory(stats: BusinessStats): string {
     if (stats.newLast30Days > 0) changes.push(`+${stats.newLast30Days} new`)
     if (stats.cancelledLast30Days > 0) changes.push(`-${stats.cancelledLast30Days} cancelled`)
     lines.push(`Last 30 days: ${changes.join(', ')}`)
-  }
-
-  // Attendance
-  if (stats.totalCheckins30Days > 0) {
-    lines.push(`Checkins (last 30 days): ~${stats.totalCheckins30Days} total`)
-  }
-  if (stats.checkinsPerMemberPerWeek !== null) {
-    lines.push(`Avg per member: ${stats.checkinsPerMemberPerWeek} visits/week (trend: ${stats.attendanceTrend})`)
-  }
-
-  // Classes / programs
-  if (stats.classNames.length > 0) {
-    lines.push(`Programs: ${stats.classNames.join(', ')}`)
   }
 
   // Revenue

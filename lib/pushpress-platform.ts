@@ -120,6 +120,46 @@ export interface PPCheckin {
   eventId?: string
 }
 
+// ── Class / schedule types ────────────────────────────────────────────────────
+
+/** A scheduled class instance from GET /classes */
+export interface PPClass {
+  id: string
+  companyId?: string
+  typeId?: string            // links to PPClassType
+  name?: string
+  description?: string
+  startTime?: string         // ISO datetime or HH:mm
+  endTime?: string           // ISO datetime or HH:mm
+  date?: string              // ISO date
+  day?: string               // day of week (e.g. 'monday')
+  dayOfWeek?: number         // 0-6
+  maxCapacity?: number       // class cap
+  enrolledCount?: number     // current signups
+  waitlistCount?: number
+  coach?: string             // coach name or ID
+  coachId?: string
+  staffId?: string           // alternative field for coach
+  staffName?: string
+  location?: string
+  room?: string
+  status?: string            // 'active' | 'cancelled' etc.
+  recurring?: boolean
+}
+
+/** A class type / program template from GET /classes/types */
+export interface PPClassType {
+  id: string
+  companyId?: string
+  name: string
+  description?: string
+  color?: string
+  defaultDuration?: number   // minutes
+  defaultCapacity?: number
+  category?: string
+  status?: string
+}
+
 // ── Mapped output type ────────────────────────────────────────────────────────
 
 /** Intermediate type from mapCustomer — raw customer fields before enrollment merge */

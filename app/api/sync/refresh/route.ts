@@ -6,12 +6,13 @@ import { getAccountForUser } from '@/lib/db/accounts'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import { syncBusinessStats } from '@/lib/sync-business-stats'
+import { syncSchedule } from '@/lib/sync-schedule'
 
 /**
  * POST /api/sync/refresh
  *
- * Manually refresh business stats from PushPress. Writes updated
- * business_stats memory with current member counts, attendance, etc.
+ * Manually refresh business stats + schedule from PushPress. Writes updated
+ * business_stats and schedule_and_attendance memories.
  */
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -40,9 +41,12 @@ export async function POST(req: NextRequest) {
     const companyId = row.pushpress_company_id || ''
     const avgPrice = row.avg_membership_price || 150
 
+    // Stats first (need active count), then schedule in parallel isn't worth it
+    // since they share the same API key and rate limits
     const { stats } = await syncBusinessStats(accountId, apiKey, companyId, avgPrice)
+    const { schedule } = await syncSchedule(accountId, apiKey, companyId, stats.active)
 
-    return NextResponse.json({ stats })
+    return NextResponse.json({ stats, schedule })
   } catch (err: any) {
     console.error('[sync/refresh] Error:', err.message)
     return NextResponse.json(
