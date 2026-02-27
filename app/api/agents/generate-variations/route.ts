@@ -27,21 +27,21 @@ Each prompt: second person ("You are..."), 4-6 sentences, plain prose, specific 
 
 The agent has access to business data and can draft messages, analyze patterns, flag issues, and surface insights for the owner to act on.`
 
-  const response = await client.messages.create({
-    model: HAIKU,
-    max_tokens: 1200,
-    system,
-    messages: [{ role: 'user', content: userPrompt }],
-  })
-
-  const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
-
   try {
+    const response = await client.messages.create({
+      model: HAIKU,
+      max_tokens: 1200,
+      system,
+      messages: [{ role: 'user', content: userPrompt }],
+    })
+
+    const text = response.content.find(b => b.type === 'text')?.text ?? '{}'
     // Strip any accidental markdown fencing
     const clean = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
     const parsed = JSON.parse(clean)
     return NextResponse.json(parsed)
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse variations', raw: text }, { status: 500 })
+  } catch (err: any) {
+    console.error('[generate-variations] error:', err?.message)
+    return NextResponse.json({ error: err?.message ?? 'Failed to generate variations' }, { status: 500 })
   }
 }

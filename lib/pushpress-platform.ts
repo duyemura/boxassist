@@ -21,6 +21,9 @@ import type { MemberData, AccountSnapshot, PaymentEvent } from './agents/GMAgent
 export const PP_PLATFORM_BASE =
   process.env.PUSHPRESS_PLATFORM_URL || 'https://api.pushpress.com/platform/v1'
 
+/** PushPress v3 API — has /customers endpoint that Platform v1 lacks */
+const PP_V3_BASE = 'https://api.pushpress.com/v3'
+
 // ── OpenAPI types (exact field names from spec) ────────────────────────────────
 
 export interface PPCustomerName {

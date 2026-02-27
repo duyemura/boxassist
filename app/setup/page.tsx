@@ -274,27 +274,6 @@ function RecommendationCard({
             </div>
           </div>
 
-          {/* How it works — concrete steps so the owner knows exactly what happens */}
-          <div className="border border-gray-200 bg-white p-5 mb-6">
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">HOW IT WORKS</p>
-            <div className="space-y-3">
-              {getHowItWorks(rec).map((step, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
-                    {i + 1}
-                  </div>
-                  <p className="text-xs text-gray-600 leading-relaxed">{step}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 pt-3 border-t border-gray-100 flex items-start gap-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <p className="text-xs text-gray-500">Nothing sends without your approval. You review every message before it goes out.</p>
-            </div>
-          </div>
-
           <div className="space-y-2">
             <button onClick={onAccept} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
               Start with this agent →
@@ -525,6 +504,8 @@ export default function SetupPage() {
   const [agentName, setAgentName] = useState('')
   const [description, setDescription] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [agentSkillType, setAgentSkillType] = useState('')  // from recommendation.agentType
+  const [fastPath, setFastPath] = useState(false)          // accepted rec without going through build step
 
   // Schedule fields
   const [selectedTrigger, setSelectedTrigger] = useState('daily')
@@ -584,6 +565,8 @@ export default function SetupPage() {
     setAgentName(recommendation.name)
     setDescription(recommendation.description)
     setSystemPrompt('')
+    setAgentSkillType(recommendation.agentType)
+    setFastPath(true)
     if (recommendation.trigger.mode === 'event' && recommendation.trigger.event) {
       setSelectedTrigger('event')
       setSelectedEvent(recommendation.trigger.event)
@@ -600,6 +583,7 @@ export default function SetupPage() {
     if (recommendation) {
       setAgentName(recommendation.name)
       setDescription(recommendation.description)
+      setAgentSkillType(recommendation.agentType)
       setFromRecommendation(true)
       if (recommendation.trigger.mode === 'event' && recommendation.trigger.event) {
         setSelectedTrigger('event')
@@ -610,6 +594,7 @@ export default function SetupPage() {
         setSelectedTrigger('daily')
       }
     }
+    setFastPath(false)
     setStep(1)
     setPhase('build')
   }
@@ -618,9 +603,18 @@ export default function SetupPage() {
 
   const handleCreate = async () => {
     if (!agentName.trim()) return
+    setCreating(true)
+    setCreateError('')
+
+    // Fast path (accepted recommendation): skill file handles agent logic.
+    // system_prompt is just optional owner instructions — deploy as-is, no auto-generation.
+    if (fastPath && agentSkillType) {
+      await deployAgent(systemPrompt.trim())
+      return
+    }
+
+    // Custom build path: auto-generate a prompt if the user didn't write one.
     if (!systemPrompt.trim()) {
-      setCreating(true)
-      setCreateError('')
       try {
         const genRes = await fetch('/api/agents/generate-variations', {
           method: 'POST',
@@ -639,20 +633,22 @@ export default function SetupPage() {
       }
       return
     }
-    setCreating(true)
-    setCreateError('')
     await deployAgent(systemPrompt.trim())
   }
 
   const deployAgent = async (prompt: string) => {
     try {
       const trigger = TRIGGER_OPTIONS.find(t => t.id === selectedTrigger)!
-      const skillType = agentName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40) || 'custom_agent'
+      // Use recommendation's agentType as skill_type when available — ensures the right
+      // skill file is loaded. Fallback: derive from name for custom-built agents.
+      const skillType = agentSkillType ||
+        agentName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40) ||
+        'custom_agent'
       const config = {
         name: agentName,
         description: description.trim(),
         skill_type: skillType,
-        system_prompt: prompt,
+        system_prompt: prompt || null,
         trigger_mode: trigger.mode === 'manual' ? 'cron' : trigger.mode,
         trigger_event: trigger.mode === 'event' ? selectedEvent : null,
         cron_schedule: trigger.mode === 'cron' ? trigger.schedule : null,
@@ -840,6 +836,29 @@ export default function SetupPage() {
           {/* Step 2: Schedule */}
           {step === 2 && (
             <div>
+              {/* How it works — shown when coming from recommendation (fast or customize path) */}
+              {recommendation && (
+                <div className="border border-gray-200 bg-white p-5 mb-6">
+                  <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">HOW IT WORKS</p>
+                  <div className="space-y-3">
+                    {getHowItWorks(recommendation).map((step, i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
+                          {i + 1}
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{step}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-start gap-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    <p className="text-xs text-gray-500">Nothing sends without your approval. You review every message before it goes out.</p>
+                  </div>
+                </div>
+              )}
+
               <h1 className="text-xl font-bold text-gray-900 mb-1">When should it run?</h1>
               <p className="text-sm text-gray-400 mb-6">You can change this any time from your dashboard.</p>
 
@@ -878,6 +897,26 @@ export default function SetupPage() {
                   <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} className={fieldCls + ' bg-white'}>
                     {PUSHPRESS_EVENTS.map(ev => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
                   </select>
+                </div>
+              )}
+
+              {/* Custom instructions — only shown on fast path (recommendation accepted without customizing) */}
+              {fastPath && (
+                <div className="mb-4 pt-2 border-t border-gray-100">
+                  <label className={labelCls}>
+                    Custom instructions{' '}
+                    <span className="normal-case font-normal tracking-normal text-gray-400">— optional</span>
+                  </label>
+                  <textarea
+                    value={systemPrompt}
+                    onChange={e => setSystemPrompt(e.target.value)}
+                    rows={3}
+                    className={fieldCls + ' resize-none'}
+                    placeholder={`e.g. "Sign off as Coach Mike" or "Focus on members who've been here 3+ months"`}
+                  />
+                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+                    This agent already knows what to look for. Add anything specific to your gym — tone, sign-off name, who to prioritize.
+                  </p>
                 </div>
               )}
 
