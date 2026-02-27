@@ -23,6 +23,16 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; descriptio
     color: '#0063FF',
     description: 'What the AI knows about your business — inferred at connect time and updated over time.',
   },
+  business_stats: {
+    label: 'Business Stats',
+    color: '#0063FF',
+    description: 'Key metrics synced from PushPress — member counts, revenue, and growth.',
+  },
+  schedule_and_attendance: {
+    label: 'Schedule & Attendance',
+    color: '#0891B2',
+    description: 'Class schedule, programs, and attendance trends.',
+  },
   preference: {
     label: 'Owner Preferences',
     color: '#7C3AED',
@@ -49,7 +59,7 @@ function categoryConfig(category: string) {
   }
 }
 
-const KNOWN_ORDER = ['gym_context', 'preference', 'member_fact', 'learned_pattern']
+const KNOWN_ORDER = ['gym_context', 'business_stats', 'schedule_and_attendance', 'preference', 'member_fact', 'learned_pattern']
 
 const CATEGORY_OPTIONS = [
   { value: 'preference', label: 'Owner Preference' },
@@ -105,7 +115,7 @@ function MemoryCard({ memory, onEdit, onDelete }: {
       style={{ borderLeft: `2px solid ${CATEGORY_CONFIG[memory.category]?.color ?? '#E5E7EB'}` }}
     >
       <div className="flex items-start gap-2">
-        <p className="text-sm text-gray-800 leading-relaxed flex-1">{memory.content}</p>
+        <p className="text-sm text-gray-800 leading-relaxed flex-1 whitespace-pre-line">{memory.content}</p>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           <button
             onClick={() => onEdit(memory)}
@@ -160,7 +170,7 @@ function CategorySection({ category, memories, onEdit, onDelete }: {
   const config = categoryConfig(category)
 
   return (
-    <div className="mb-8">
+    <div className="mb-6">
       <div className="flex items-baseline gap-3 mb-1">
         <h2 className="text-sm font-semibold text-gray-900">{config.label}</h2>
         <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
@@ -168,7 +178,7 @@ function CategorySection({ category, memories, onEdit, onDelete }: {
         </span>
       </div>
       <p className="text-xs text-gray-400 mb-3">{config.description}</p>
-      <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {memories.map(m => (
           <MemoryCard key={m.id} memory={m} onEdit={onEdit} onDelete={onDelete} />
         ))}
@@ -265,6 +275,125 @@ function MemoryForm({ editing, onSave, onCancel }: {
         </div>
       </div>
     </form>
+  )
+}
+
+// ── Suggestion types ──────────────────────────────────────────────────────────
+
+interface Suggestion {
+  id: string
+  title: string
+  description: string
+  proposed_change: {
+    content: string
+    category: string
+    scope: string
+    importance: number
+    targetMemoryId?: string
+    memberName?: string
+  }
+  evidence: { source: string; quote: string; originalContent?: string }
+  confidence_score: number
+  evidence_strength: string
+  created_at: string
+}
+
+// ── SuggestionsSection ────────────────────────────────────────────────────────
+
+function SuggestionsSection() {
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [loading, setLoading] = useState(true)
+  const [acting, setActing] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/improvements')
+      .then(r => r.json())
+      .then(json => { setSuggestions(json.suggestions ?? []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const act = async (id: string, action: 'apply' | 'dismiss') => {
+    setActing(id)
+    try {
+      await fetch('/api/improvements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      })
+      setSuggestions(prev => prev.filter(s => s.id !== id))
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (loading || suggestions.length === 0) return null
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-baseline gap-3 mb-1">
+        <h2 className="text-sm font-semibold text-gray-900">Suggested Memories</h2>
+        <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+          {suggestions.length} to review
+        </span>
+      </div>
+      <p className="text-xs text-gray-400 mb-3">
+        Extracted from recent conversations — save what looks right, dismiss the rest.
+      </p>
+      <div className="flex flex-col gap-2">
+        {suggestions.map(s => {
+          const catColor = CATEGORY_CONFIG[s.proposed_change.category]?.color ?? '#6B7280'
+          const isActing = acting === s.id
+          const isUpdate = !!s.proposed_change.targetMemoryId
+          return (
+            <div
+              key={s.id}
+              className="px-4 py-3 border border-gray-200 bg-white"
+              style={{ borderLeft: `2px solid ${catColor}` }}
+            >
+              {isUpdate && (
+                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1.5">
+                  Updates existing memory
+                </p>
+              )}
+              <p className="text-sm text-gray-800 leading-relaxed mb-1">{s.proposed_change.content}</p>
+              {s.evidence?.quote && (
+                <p className="text-[11px] text-gray-400 italic mb-2">
+                  &ldquo;{s.evidence.quote}&rdquo;
+                </p>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="text-[10px] font-semibold tracking-widest uppercase px-1.5 py-0.5"
+                  style={{ backgroundColor: `${catColor}15`, color: catColor }}
+                >
+                  {categoryConfig(s.proposed_change.category).label}
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  {s.evidence_strength} signal
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => act(s.id, 'dismiss')}
+                    disabled={isActing}
+                    className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-40 px-2 py-1"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    onClick={() => act(s.id, 'apply')}
+                    disabled={isActing}
+                    className="text-[10px] font-semibold text-white px-3 py-1 transition-opacity hover:opacity-80 disabled:opacity-40"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    {isActing ? 'Saving...' : isUpdate ? 'Update memory' : 'Save as memory'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -378,6 +507,8 @@ export default function MemoriesPanel() {
       </div>
 
       <div className="px-6 py-6">
+        <SuggestionsSection />
+
         {showForm && (
           <MemoryForm editing={editing} onSave={handleSave} onCancel={handleCancel} />
         )}
