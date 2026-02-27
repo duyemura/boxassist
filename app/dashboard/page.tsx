@@ -362,6 +362,7 @@ function DashboardContent() {
       ref={gmChatRef}
       accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
       isDemo={isDemo}
+      agentName={primaryAgentName}
       onRunAnalysis={runScan}
       onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
       analysisProgress={{

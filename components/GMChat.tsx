@@ -31,6 +31,7 @@ export interface QuickAction {
 export interface GMChatProps {
   accountId: string
   isDemo: boolean
+  agentName?: string
   initialHistory?: GMChatMessage[]
   onTaskCreated?: (taskId: string) => void
   onRunAnalysis?: () => void
@@ -180,6 +181,7 @@ function MessageBubble({ msg }: { msg: GMChatMessage }) {
 const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
   accountId,
   isDemo,
+  agentName,
   initialHistory,
   onTaskCreated,
   onRunAnalysis,
@@ -299,10 +301,10 @@ const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
       <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#22C55E' }} />
-          <span className="text-sm font-semibold text-gray-900">GM Agent</span>
+          <span className="text-sm font-semibold text-gray-900">{agentName || 'GM Agent'}</span>
           <span className="text-[10px] font-semibold" style={{ color: '#22C55E' }}>Active</span>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">Ask anything about your gym</p>
+        <p className="text-xs text-gray-400 mt-0.5">Ask anything about your business</p>
       </div>
 
       {/* ── Messages ── */}
