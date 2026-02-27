@@ -26,6 +26,13 @@ interface Recommendation {
   }
 }
 
+interface RunAction {
+  memberName?: string
+  riskReason?: string
+  insights?: string
+  riskLevel?: string
+}
+
 // ── Schedule options ─────────────────────────────────────────────────────────
 
 const TRIGGER_OPTIONS = [
@@ -42,6 +49,43 @@ const PUSHPRESS_EVENTS = [
   { value: 'payment.failed', label: 'Payment failed' },
   { value: 'checkin.created', label: 'Member checked in' },
 ]
+
+function scheduleLabel(triggerId: string, hour: number): string {
+  const h = hour === 0 ? '12am' : hour === 12 ? '12pm' : hour < 12 ? `${hour}am` : `${hour - 12}pm`
+  if (triggerId === 'daily') return `Runs daily at ${h} UTC`
+  if (triggerId === 'weekly') return `Runs every Monday at ${h} UTC`
+  if (triggerId === 'event') return 'Triggers on events'
+  return 'Run manually'
+}
+
+// ── Shared header ─────────────────────────────────────────────────────────────
+
+function Header({ onSkip }: { onSkip?: () => void }) {
+  return (
+    <header className="h-12 bg-white border-b border-gray-100 flex items-center px-6 flex-shrink-0">
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
+          <span className="font-bold text-[10px] text-white">G</span>
+        </div>
+        <span className="font-semibold text-sm text-gray-900">GymAgents</span>
+      </div>
+      {onSkip && (
+        <>
+          <div className="flex-1" />
+          <button
+            onClick={onSkip}
+            className="text-xs transition-colors"
+            style={{ color: '#9CA3AF' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#6B7280')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
+          >
+            Skip for now
+          </button>
+        </>
+      )}
+    </header>
+  )
+}
 
 // ── Progress ─────────────────────────────────────────────────────────────────
 
@@ -81,7 +125,7 @@ function Progress({ step }: { step: number }) {
   )
 }
 
-// ── Loading animation ────────────────────────────────────────────────────────
+// ── Loading screen ────────────────────────────────────────────────────────────
 
 const LOADING_MESSAGES = [
   'Connecting to your PushPress data…',
@@ -104,31 +148,17 @@ function LoadingScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8F9FB' }}>
       <div className="text-center max-w-sm w-full">
-        {/* Animated pulse icon */}
         <div className="relative w-12 h-12 mx-auto mb-6">
-          <div
-            className="absolute inset-0 animate-ping opacity-20"
-            style={{ backgroundColor: '#0063FF' }}
-          />
-          <div
-            className="relative w-12 h-12 flex items-center justify-center"
-            style={{ backgroundColor: '#0063FF' }}
-          >
+          <div className="absolute inset-0 animate-ping opacity-20" style={{ backgroundColor: '#0063FF' }} />
+          <div className="relative w-12 h-12 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
           </div>
         </div>
-
-        <h2 className="text-lg font-bold text-gray-900 mb-2">
-          Learning your business
-        </h2>
-        <p
-          className="text-sm transition-opacity duration-500"
-          style={{ color: '#6B7280' }}
-          key={msgIndex}
-        >
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Learning your business</h2>
+        <p className="text-sm transition-opacity duration-500" style={{ color: '#6B7280' }} key={msgIndex}>
           {LOADING_MESSAGES[msgIndex]}
         </p>
       </div>
@@ -139,11 +169,7 @@ function LoadingScreen() {
 // ── Recommendation card ──────────────────────────────────────────────────────
 
 function RecommendationCard({
-  rec,
-  accountName,
-  onAccept,
-  onCustomize,
-  onSkip,
+  rec, accountName, onAccept, onCustomize, onSkip,
 }: {
   rec: Recommendation
   accountName: string
@@ -153,67 +179,37 @@ function RecommendationCard({
 }) {
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F8F9FB' }}>
-      <header className="h-12 bg-white border-b border-gray-100 flex items-center px-6 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
-            <span className="font-bold text-[10px] text-white">G</span>
-          </div>
-          <span className="font-semibold text-sm text-gray-900">GymAgents</span>
-        </div>
-        <div className="flex-1" />
-        <button
-          onClick={onSkip}
-          className="text-xs transition-colors"
-          style={{ color: '#9CA3AF' }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#6B7280')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
-        >
-          Skip for now
-        </button>
-      </header>
-
+      <Header onSkip={onSkip} />
       <div className="flex-1 flex flex-col items-center px-4 py-12">
         <div className="w-full max-w-xl">
-          {/* Header */}
-          <div className="mb-8">
+          <div className="mb-6">
             <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-2">
               RECOMMENDED FOR {accountName.toUpperCase()}
             </p>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">{rec.headline}</h1>
-            <p className="text-sm" style={{ color: '#6B7280' }}>{rec.reasoning}</p>
+            <h1 className="text-xl font-bold text-gray-900">{rec.headline}</h1>
           </div>
 
-          {/* Stats */}
-          <div className="flex gap-3 mb-8">
+          {/* Data-driven insight callout */}
+          <div className="mb-6 px-4 py-3 border-l-2" style={{ borderColor: '#0063FF', backgroundColor: '#F0F6FF' }}>
+            <p className="text-[10px] font-semibold tracking-widest uppercase mb-1" style={{ color: '#0063FF' }}>
+              WHY THIS AGENT
+            </p>
+            <p className="text-sm text-gray-700 leading-relaxed">{rec.reasoning}</p>
+          </div>
+
+          <div className="flex gap-3 mb-6">
             {rec.stats.map((stat, i) => (
-              <div
-                key={i}
-                className="flex-1 border p-4 bg-white"
-                style={{ borderColor: stat.emphasis ? '#0063FF' : '#E5E7EB' }}
-              >
-                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1">
-                  {stat.label}
-                </p>
-                <p
-                  className="text-lg font-bold"
-                  style={{ color: stat.emphasis ? '#0063FF' : '#111827' }}
-                >
-                  {stat.value}
-                </p>
+              <div key={i} className="flex-1 border p-4 bg-white" style={{ borderColor: stat.emphasis ? '#0063FF' : '#E5E7EB' }}>
+                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1">{stat.label}</p>
+                <p className="text-lg font-bold" style={{ color: stat.emphasis ? '#0063FF' : '#111827' }}>{stat.value}</p>
               </div>
             ))}
           </div>
-
-          {/* Agent preview card */}
           <div className="bg-white border border-gray-200 p-6 mb-6">
             <div className="flex items-start gap-3 mb-3">
-              <div
-                className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-0.5"
-                style={{ backgroundColor: '#0063FF' }}
-              >
+              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: '#0063FF' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
-                  <path d="M12 2a10 10 0 0 1 10 10" />
+                  <path d="M12 2a10 10 0 1 0 10 10H12V2Z" /><path d="M12 2a10 10 0 0 1 10 10" />
                 </svg>
               </div>
               <div>
@@ -222,34 +218,19 @@ function RecommendationCard({
               </div>
             </div>
             <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100">
-              <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
-                RUNS
-              </span>
+              <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">RUNS</span>
               <span className="text-xs text-gray-700">
                 {rec.trigger.mode === 'cron'
-                  ? `${rec.trigger.schedule === 'daily' ? 'Every morning' : 'Weekly'}`
-                  : `When ${PUSHPRESS_EVENTS.find(e => e.value === rec.trigger.event)?.label.toLowerCase() || 'event fires'}`
-                }
+                  ? rec.trigger.schedule === 'daily' ? 'Every morning' : 'Weekly'
+                  : `When ${PUSHPRESS_EVENTS.find(e => e.value === rec.trigger.event)?.label.toLowerCase() || 'event fires'}`}
               </span>
             </div>
           </div>
-
-          {/* Actions */}
           <div className="space-y-2">
-            <button
-              onClick={onAccept}
-              className="w-full py-3 text-sm font-bold text-white transition-opacity"
-              style={{ backgroundColor: '#0063FF' }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >
+            <button onClick={onAccept} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
               Start with this agent →
             </button>
-            <button
-              onClick={onCustomize}
-              className="w-full py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-              style={{ color: '#6B7280' }}
-            >
+            <button onClick={onCustomize} className="w-full py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50" style={{ color: '#6B7280' }}>
               I'll customize it first
             </button>
           </div>
@@ -259,33 +240,234 @@ function RecommendationCard({
   )
 }
 
+// ── First-run screen ──────────────────────────────────────────────────────────
+
+function FirstRunScreen({
+  agentName, description, trigger, runHour, onRun, onSkip,
+}: {
+  agentName: string
+  description: string
+  trigger: string
+  runHour: number
+  onRun: () => void
+  onSkip: () => void
+}) {
+  return (
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F8F9FB' }}>
+      <Header />
+      <div className="flex-1 flex flex-col items-center px-4 py-16">
+        <div className="w-full max-w-md">
+
+          {/* Agent created badge */}
+          <div className="flex items-center gap-2 mb-8">
+            <div className="w-4 h-4 flex items-center justify-center" style={{ backgroundColor: '#059669' }}>
+              <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">Agent created</span>
+          </div>
+
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            Let's see what {agentName} can do.
+          </h1>
+          <p className="text-sm text-gray-400 mb-8">
+            Run it once against your live data to see what it finds. Takes about 20 seconds.
+          </p>
+
+          {/* Agent card */}
+          <div className="bg-white border border-gray-200 p-5 mb-8">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: '#0063FF' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-gray-900">{agentName}</h3>
+                {description && <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{description}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+              <div className="w-1.5 h-1.5 flex-shrink-0" style={{ backgroundColor: '#059669' }} />
+              <span className="text-xs text-gray-500">{scheduleLabel(trigger, runHour)}</span>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <button
+            onClick={onRun}
+            className="w-full py-4 text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
+            style={{ backgroundColor: '#0063FF' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Run {agentName} now
+          </button>
+
+          <button
+            onClick={onSkip}
+            className="w-full mt-3 py-2 text-xs text-center transition-colors"
+            style={{ color: '#9CA3AF' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#6B7280')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
+          >
+            Skip — I'll run it from the dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Running screen ────────────────────────────────────────────────────────────
+
+function RunningScreen({ agentName, statusMessages }: { agentName: string; statusMessages: string[] }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8F9FB' }}>
+      <div className="max-w-sm w-full px-4">
+
+        {/* Pulse icon */}
+        <div className="relative w-12 h-12 mx-auto mb-8">
+          <div className="absolute inset-0 animate-ping opacity-20" style={{ backgroundColor: '#0063FF' }} />
+          <div className="relative w-12 h-12 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+          </div>
+        </div>
+
+        <h2 className="text-lg font-bold text-gray-900 text-center mb-6">
+          Running {agentName}…
+        </h2>
+
+        {/* Live status feed */}
+        <div className="space-y-3">
+          {statusMessages.map((msg, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#059669' }}>
+                <svg width="8" height="8" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <span className="text-sm text-gray-500">{msg}</span>
+            </div>
+          ))}
+          {/* Current step */}
+          <div className="flex items-center gap-3">
+            <span
+              className="w-4 h-4 border border-blue-500 border-t-transparent flex-shrink-0 animate-spin"
+              style={{ borderRadius: '50%' }}
+            />
+            <span className="text-sm text-gray-700">Working…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Results screen ────────────────────────────────────────────────────────────
+
+function ResultsScreen({
+  agentName, actions, onContinue,
+}: {
+  agentName: string
+  actions: RunAction[]
+  onContinue: () => void
+}) {
+  const found = actions.length
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F8F9FB' }}>
+      <Header />
+      <div className="flex-1 flex flex-col items-center px-4 py-16">
+        <div className="w-full max-w-md">
+
+          <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">
+            First run complete
+          </p>
+
+          {found > 0 ? (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                {agentName} found {found} {found === 1 ? 'item' : 'items'}.
+              </h1>
+              <p className="text-sm text-gray-400 mb-8">
+                {found === 1 ? "It's been" : "They've been"} added to your To-Do list on the dashboard.
+              </p>
+
+              <div className="flex flex-col gap-1.5 mb-8">
+                {actions.slice(0, 5).map((action, i) => (
+                  <div key={i} className="bg-white border border-gray-200 px-4 py-3">
+                    <p className="text-sm font-semibold text-gray-900">{action.memberName ?? 'Member'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+                      {action.riskReason ?? action.insights ?? 'Needs attention'}
+                    </p>
+                  </div>
+                ))}
+                {found > 5 && (
+                  <p className="text-xs text-gray-400 text-center pt-1">
+                    +{found - 5} more on the dashboard
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                All clear for now.
+              </h1>
+              <p className="text-sm text-gray-400 mb-8">
+                {agentName} didn't find anything urgent right now. It'll keep watching and alert you as soon as something comes up.
+              </p>
+            </>
+          )}
+
+          <button
+            onClick={onContinue}
+            className="w-full py-4 text-sm font-bold text-white transition-opacity hover:opacity-80"
+            style={{ backgroundColor: '#0063FF' }}
+          >
+            Go to my dashboard →
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-type Phase = 'loading' | 'loading-error' | 'recommendation' | 'build' | 'done'
+type Phase = 'loading' | 'loading-error' | 'recommendation' | 'build' | 'first-run' | 'running' | 'results'
 
 export default function SetupPage() {
   const router = useRouter()
 
-  // Phase state
+  // Phase
   const [phase, setPhase] = useState<Phase>('loading')
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null)
   const [accountName, setAccountName] = useState('')
   const [loadError, setLoadError] = useState('')
   const [fromRecommendation, setFromRecommendation] = useState(false)
 
-  // Step 1 — build
+  // Build fields
   const [agentName, setAgentName] = useState('')
   const [description, setDescription] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
 
-  // Step 2 — schedule
+  // Schedule fields
   const [selectedTrigger, setSelectedTrigger] = useState('daily')
   const [selectedEvent, setSelectedEvent] = useState('member.cancelled')
   const [runHour, setRunHour] = useState(9)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
-
   const [step, setStep] = useState(1)
+
+  // First-run state
+  const [runStatusMessages, setRunStatusMessages] = useState<string[]>([])
+  const [runActions, setRunActions] = useState<RunAction[]>([])
 
   const fieldCls = 'w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors'
   const labelCls = 'text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block'
@@ -295,7 +477,6 @@ export default function SetupPage() {
   const fetchRecommendation = async () => {
     setPhase('loading')
     setLoadError('')
-
     try {
       const res = await fetch('/api/setup/recommend', { method: 'POST' })
       if (!res.ok) {
@@ -303,14 +484,12 @@ export default function SetupPage() {
         throw new Error(data.error || `Failed to analyze (${res.status})`)
       }
       const { recommendation: rec, snapshotSummary } = await res.json()
-
       setRecommendation(rec)
       setAccountName(snapshotSummary?.accountName || 'Your Gym')
       setPhase('recommendation')
     } catch (err: any) {
       console.error('[setup] recommendation fetch failed:', err)
       setLoadError(err.message)
-      // Show error on loading screen — user can retry or skip
       setPhase('loading-error')
     }
   }
@@ -319,17 +498,13 @@ export default function SetupPage() {
     fetchRecommendation()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Accept recommendation → go straight to schedule ────────────────────────
+  // ── Accept recommendation → skip to schedule ────────────────────────────────
 
   const handleAcceptRecommendation = () => {
     if (!recommendation) return
-
     setAgentName(recommendation.name)
     setDescription(recommendation.description)
-    // Don't set system prompt — let AI generate it based on name + description
     setSystemPrompt('')
-
-    // Pre-select the trigger
     if (recommendation.trigger.mode === 'event' && recommendation.trigger.event) {
       setSelectedTrigger('event')
       setSelectedEvent(recommendation.trigger.event)
@@ -338,19 +513,15 @@ export default function SetupPage() {
     } else {
       setSelectedTrigger('daily')
     }
-
     setStep(2)
     setPhase('build')
   }
-
-  // ── Customize → go to build with pre-filled fields ─────────────────────────
 
   const handleCustomize = () => {
     if (recommendation) {
       setAgentName(recommendation.name)
       setDescription(recommendation.description)
       setFromRecommendation(true)
-
       if (recommendation.trigger.mode === 'event' && recommendation.trigger.event) {
         setSelectedTrigger('event')
         setSelectedEvent(recommendation.trigger.event)
@@ -360,17 +531,14 @@ export default function SetupPage() {
         setSelectedTrigger('daily')
       }
     }
-
     setStep(1)
     setPhase('build')
   }
 
-  // ── Create agent ───────────────────────────────────────────────────────────
+  // ── Create agent ────────────────────────────────────────────────────────────
 
   const handleCreate = async () => {
     if (!agentName.trim()) return
-
-    // If no system prompt, generate one first
     if (!systemPrompt.trim()) {
       setCreating(true)
       setCreateError('')
@@ -381,20 +549,17 @@ export default function SetupPage() {
           body: JSON.stringify({ name: agentName, description }),
         })
         const genData = await genRes.json()
-        if (genRes.ok && genData.variations?.length > 0) {
-          // Use the first variation
-          await deployAgent(genData.variations[0].prompt)
-        } else {
-          // Use a basic prompt
-          await deployAgent(`You are ${agentName}. ${description}`)
-        }
+        await deployAgent(
+          genRes.ok && genData.variations?.length > 0
+            ? genData.variations[0].prompt
+            : `You are ${agentName}. ${description}`,
+        )
       } catch (err: any) {
         setCreateError(err.message)
         setCreating(false)
       }
       return
     }
-
     setCreating(true)
     setCreateError('')
     await deployAgent(systemPrompt.trim())
@@ -404,7 +569,6 @@ export default function SetupPage() {
     try {
       const trigger = TRIGGER_OPTIONS.find(t => t.id === selectedTrigger)!
       const skillType = agentName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 40) || 'custom_agent'
-
       const config = {
         name: agentName,
         description: description.trim(),
@@ -417,7 +581,6 @@ export default function SetupPage() {
         action_type: 'draft_message',
         data_sources: [],
       }
-
       const res = await fetch('/api/agent-builder/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -426,8 +589,8 @@ export default function SetupPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to create agent')
 
-      setPhase('done')
-      setTimeout(() => router.push('/dashboard'), 1800)
+      // Agent created — show first-run screen instead of auto-redirecting
+      setPhase('first-run')
     } catch (err: any) {
       setCreateError(err.message)
     } finally {
@@ -435,52 +598,76 @@ export default function SetupPage() {
     }
   }
 
-  // ── Render: Loading ────────────────────────────────────────────────────────
+  // ── Run the agent (SSE stream) ──────────────────────────────────────────────
 
-  if (phase === 'loading') {
-    return <LoadingScreen />
+  const handleRun = async () => {
+    setPhase('running')
+    setRunStatusMessages([])
+    setRunActions([])
+
+    try {
+      const res = await fetch('/api/agents/run', { method: 'POST' })
+      if (!res.ok || !res.body) {
+        router.push('/dashboard')
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === 'status') {
+              setRunStatusMessages(prev => [...prev, event.text])
+            } else if (event.type === 'done') {
+              const actions: RunAction[] = event.result?.output?.actions ?? []
+              setRunActions(actions)
+              setPhase('results')
+            } else if (event.type === 'error') {
+              // Don't block the user — just send them to dashboard
+              router.push('/dashboard')
+            }
+          } catch {
+            // Malformed SSE line — skip
+          }
+        }
+      }
+    } catch {
+      router.push('/dashboard')
+    }
   }
 
-  // ── Render: Loading error ──────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  if (phase === 'loading') return <LoadingScreen />
 
   if (phase === 'loading-error') {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8F9FB' }}>
         <div className="text-center max-w-sm w-full">
-          <div
-            className="w-12 h-12 flex items-center justify-center mx-auto mb-6"
-            style={{ backgroundColor: '#F3F4F6' }}
-          >
+          <div className="w-12 h-12 flex items-center justify-center mx-auto mb-6" style={{ backgroundColor: '#F3F4F6' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
           <h2 className="text-lg font-bold text-gray-900 mb-2">Couldn't analyze your data</h2>
           <p className="text-sm text-gray-500 mb-2">{loadError}</p>
           <p className="text-xs text-gray-400 mb-6">Check the terminal for more details.</p>
           <div className="flex flex-col gap-2">
-            <button
-              onClick={fetchRecommendation}
-              className="w-full py-3 text-sm font-bold text-white transition-opacity"
-              style={{ backgroundColor: '#0063FF' }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-            >
+            <button onClick={fetchRecommendation} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
               Try again
             </button>
-            <button
-              onClick={() => setPhase('build')}
-              className="w-full py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
-              style={{ color: '#6B7280' }}
-            >
+            <button onClick={() => setPhase('build')} className="w-full py-3 text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50 transition-colors" style={{ color: '#6B7280' }}>
               Set up manually instead
             </button>
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="text-xs mt-2 transition-colors"
-              style={{ color: '#9CA3AF' }}
+            <button onClick={() => router.push('/dashboard')} className="text-xs mt-2 transition-colors" style={{ color: '#9CA3AF' }}
               onMouseEnter={e => (e.currentTarget.style.color = '#6B7280')}
               onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
             >
@@ -491,8 +678,6 @@ export default function SetupPage() {
       </div>
     )
   }
-
-  // ── Render: Recommendation ─────────────────────────────────────────────────
 
   if (phase === 'recommendation' && recommendation) {
     return (
@@ -506,59 +691,50 @@ export default function SetupPage() {
     )
   }
 
-  // ── Render: Done ───────────────────────────────────────────────────────────
-
-  if (phase === 'done') {
+  if (phase === 'first-run') {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#F8F9FB' }}>
-        <div className="bg-white border border-gray-100 p-12 text-center max-w-sm w-full">
-          <div className="w-10 h-10 flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#0063FF' }}>
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-              <path d="M4 10l4 4 8-8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Agent created</h2>
-          <p className="text-sm text-gray-400">Taking you to your dashboard…</p>
-        </div>
-      </div>
+      <FirstRunScreen
+        agentName={agentName}
+        description={description}
+        trigger={selectedTrigger}
+        runHour={runHour}
+        onRun={handleRun}
+        onSkip={() => router.push('/dashboard')}
+      />
     )
   }
 
-  // ── Render: Build flow ─────────────────────────────────────────────────────
+  if (phase === 'running') {
+    return <RunningScreen agentName={agentName} statusMessages={runStatusMessages} />
+  }
+
+  if (phase === 'results') {
+    return (
+      <ResultsScreen
+        agentName={agentName}
+        actions={runActions}
+        onContinue={() => router.push('/dashboard')}
+      />
+    )
+  }
+
+  // ── Build flow ──────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F8F9FB' }}>
-      <header className="h-12 bg-white border-b border-gray-100 flex items-center px-6 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 flex items-center justify-center" style={{ backgroundColor: '#0063FF' }}>
-            <span className="font-bold text-[10px] text-white">G</span>
-          </div>
-          <span className="font-semibold text-sm text-gray-900">GymAgents</span>
-        </div>
-        <div className="flex-1" />
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="text-xs transition-colors"
-          style={{ color: '#9CA3AF' }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#6B7280')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
-        >
-          Skip for now
-        </button>
-      </header>
+      <Header onSkip={() => router.push('/dashboard')} />
 
       <div className="flex-1 flex flex-col items-center px-4 py-12">
         <div className="w-full max-w-xl">
           <Progress step={step} />
 
-          {/* ── Step 1: Build ───────────────────────────────────────────── */}
+          {/* Step 1: Build */}
           {step === 1 && (
             <div>
               <div className="mb-6">
                 <h1 className="text-xl font-bold text-gray-900 mb-1">Build your first agent</h1>
                 <p className="text-sm text-gray-400">Name it, describe what it does, and let the AI write the prompt.</p>
               </div>
-
               <AgentPromptBuilder
                 name={agentName}
                 description={description}
@@ -569,15 +745,12 @@ export default function SetupPage() {
                 descriptionPlaceholder="e.g. Find members who haven't checked in for 2+ weeks and draft a personal check-in message."
                 autoGenerate={fromRecommendation}
               />
-
               <div className="mt-6">
                 <button
                   onClick={() => setStep(2)}
                   disabled={!agentName.trim()}
-                  className="w-full py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40"
+                  className="w-full py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40 hover:opacity-80"
                   style={{ backgroundColor: '#0063FF' }}
-                  onMouseEnter={e => { if (agentName.trim()) (e.currentTarget as HTMLButtonElement).style.opacity = '0.8' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
                 >
                   Next: Set a schedule →
                 </button>
@@ -585,7 +758,7 @@ export default function SetupPage() {
             </div>
           )}
 
-          {/* ── Step 2: Schedule ────────────────────────────────────────── */}
+          {/* Step 2: Schedule */}
           {step === 2 && (
             <div>
               <h1 className="text-xl font-bold text-gray-900 mb-1">When should it run?</h1>
@@ -599,14 +772,9 @@ export default function SetupPage() {
                       key={t.id}
                       onClick={() => setSelectedTrigger(t.id)}
                       className="text-left p-4 border transition-colors"
-                      style={{
-                        backgroundColor: active ? '#F0F6FF' : 'white',
-                        borderColor: active ? '#0063FF' : '#E5E7EB',
-                      }}
+                      style={{ backgroundColor: active ? '#F0F6FF' : 'white', borderColor: active ? '#0063FF' : '#E5E7EB' }}
                     >
-                      <p className="text-sm font-bold mb-0.5" style={{ color: active ? '#0063FF' : '#111827' }}>
-                        {t.label}
-                      </p>
+                      <p className="text-sm font-bold mb-0.5" style={{ color: active ? '#0063FF' : '#111827' }}>{t.label}</p>
                       <p className="text-xs text-gray-400">{t.description}</p>
                     </button>
                   )
@@ -616,11 +784,7 @@ export default function SetupPage() {
               {(selectedTrigger === 'daily' || selectedTrigger === 'weekly') && (
                 <div className="mb-4">
                   <label className={labelCls}>Run at (UTC)</label>
-                  <select
-                    value={runHour}
-                    onChange={e => setRunHour(Number(e.target.value))}
-                    className={fieldCls + ' bg-white'}
-                  >
+                  <select value={runHour} onChange={e => setRunHour(Number(e.target.value))} className={fieldCls + ' bg-white'}>
                     {Array.from({ length: 24 }, (_, i) => {
                       const label = i === 0 ? '12:00 AM' : i === 12 ? '12:00 PM' : i < 12 ? `${i}:00 AM` : `${i - 12}:00 PM`
                       return <option key={i} value={i}>{label}</option>
@@ -632,14 +796,8 @@ export default function SetupPage() {
               {selectedTrigger === 'event' && (
                 <div className="mb-4">
                   <label className={labelCls}>Which event triggers this agent?</label>
-                  <select
-                    value={selectedEvent}
-                    onChange={e => setSelectedEvent(e.target.value)}
-                    className={fieldCls + ' bg-white'}
-                  >
-                    {PUSHPRESS_EVENTS.map(ev => (
-                      <option key={ev.value} value={ev.value}>{ev.label}</option>
-                    ))}
+                  <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} className={fieldCls + ' bg-white'}>
+                    {PUSHPRESS_EVENTS.map(ev => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
                   </select>
                 </div>
               )}
@@ -649,7 +807,7 @@ export default function SetupPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setStep(1)}
-                  className="px-4 py-3 text-sm font-medium border border-gray-200 bg-white transition-colors hover:bg-gray-50"
+                  className="px-4 py-3 text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
                   style={{ color: '#6B7280' }}
                 >
                   ← Back
@@ -657,10 +815,8 @@ export default function SetupPage() {
                 <button
                   onClick={handleCreate}
                   disabled={creating}
-                  className="flex-1 py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40"
+                  className="flex-1 py-3 text-sm font-bold text-white transition-opacity disabled:opacity-40 hover:opacity-80"
                   style={{ backgroundColor: '#0063FF' }}
-                  onMouseEnter={e => { if (!creating) (e.currentTarget as HTMLButtonElement).style.opacity = '0.8' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1' }}
                 >
                   {creating ? (
                     <span className="flex items-center justify-center gap-2">
