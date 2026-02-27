@@ -49,6 +49,7 @@ const TASK_TYPE_TO_FILE: Record<string, string> = {
   at_risk_detector: 'churn-risk.md',
   payment_recovery: 'payment-recovery.md',
   lead_reactivation: 'lead-reactivation.md',
+  lead_re_activation: 'lead-reactivation.md',  // agents created before skill_type fix (name-derived)
   lead_nurture: 'lead-followup.md',
 }
 

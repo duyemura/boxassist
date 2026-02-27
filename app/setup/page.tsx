@@ -841,12 +841,12 @@ export default function SetupPage() {
                 <div className="border border-gray-200 bg-white p-5 mb-6">
                   <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">HOW IT WORKS</p>
                   <div className="space-y-3">
-                    {getHowItWorks(recommendation).map((step, i) => (
+                    {getHowItWorks(recommendation).map((howItWorksStep, i) => (
                       <div key={i} className="flex items-start gap-3">
                         <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
                           {i + 1}
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{step}</p>
+                        <p className="text-xs text-gray-600 leading-relaxed">{howItWorksStep}</p>
                       </div>
                     ))}
                   </div>
