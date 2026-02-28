@@ -24,6 +24,7 @@ import {
   getToolByName,
   toAnthropicTools,
 } from './tools'
+import { getComposioToolsForAccount } from '../integrations/composio'
 import type {
   SessionConfig,
   SessionEvent,
@@ -388,7 +389,9 @@ async function* executeLoop(
   config?: SessionConfig,
 ): AsyncGenerator<SessionEvent> {
   const client = getAnthropicClient()
-  const tools = getToolsForGroups(session.toolsEnabled)
+  const localTools = getToolsForGroups(session.toolsEnabled)
+  const composioTools = await getComposioToolsForAccount(session.accountId)
+  const tools = [...localTools, ...composioTools]
   const anthropicTools = toAnthropicTools(tools)
 
   while (session.turnCount < session.maxTurns) {

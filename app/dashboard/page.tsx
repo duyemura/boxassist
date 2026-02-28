@@ -17,6 +17,7 @@ import QuickQueue from '@/components/QuickQueue'
 import SkillsPanel from '@/components/SkillsPanel'
 import ImprovementsPanel from '@/components/ImprovementsPanel'
 import AgentChat from '@/components/AgentChat'
+import IntegrationsPanel from '@/components/IntegrationsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'settings'>('gm')
+  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'>('gm')
   const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
   const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string; startedAt: number } | null>(null)
 
@@ -203,6 +204,12 @@ function DashboardContent() {
   useEffect(() => {
     if (isDemo) setActiveSection('gm')
   }, [isDemo])
+
+  // Jump to section from query param (e.g. OAuth callback: ?section=integrations)
+  useEffect(() => {
+    const section = searchParams.get('section')
+    if (section === 'integrations') setActiveSection('integrations')
+  }, [searchParams])
 
   // Show welcome modal once per session for sandbox demo
   useEffect(() => {
@@ -510,6 +517,8 @@ function DashboardContent() {
           ? <SkillsPanel />
           : activeSection === 'improvements'
           ? <ImprovementsPanel />
+          : activeSection === 'integrations'
+          ? <IntegrationsPanel />
           : (
             <>
               <CommandStats
@@ -602,6 +611,10 @@ function DashboardContent() {
         ) : activeSection === 'improvements' ? (
           <div className="flex flex-col h-full overflow-hidden">
             <ImprovementsPanel />
+          </div>
+        ) : activeSection === 'integrations' ? (
+          <div className="flex flex-col h-full overflow-hidden">
+            <IntegrationsPanel />
           </div>
         ) : (
           // ── Command Center ──────────────────────────────────────────────────
@@ -762,7 +775,7 @@ function DashboardContent() {
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         activeSection={activeSection}
-        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'settings')}
+        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings')}
         slidePanel={
           selectedAction ? (
             <ActionSlidePanel

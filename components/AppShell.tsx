@@ -12,7 +12,7 @@ interface Agent {
   skill_type?: string
 }
 
-type NavSection = 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'settings'
+type NavSection = 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'
 
 interface AppShellProps {
   isDemo: boolean
@@ -78,6 +78,13 @@ const NAV_BOTTOM: NavItem[] = [
     label: 'Improvements',
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 3l1.5 4.5H16l-3.8 2.7 1.5 4.5L10 12l-3.7 2.7 1.5-4.5L4 7.5h4.5L10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" opacity=".9"/></svg>
+    ),
+  },
+  {
+    id: 'integrations',
+    label: 'Integrations',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 10h12M10 4l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity=".9"/></svg>
     ),
   },
   {
