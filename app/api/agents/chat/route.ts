@@ -141,16 +141,23 @@ export async function POST(req: NextRequest) {
           // Load agent config if agentId provided
           let systemPromptOverride: string | null = null
           let skillType: string | undefined
+          let role: string | undefined
           if (body.agentId) {
             const { data: agent } = await supabaseAdmin
               .from('agents')
-              .select('system_prompt, skill_type')
+              .select('system_prompt, skill_type, role')
               .eq('id', body.agentId as string)
               .single()
             if (agent) {
               systemPromptOverride = (agent as any).system_prompt
               skillType = (agent as any).skill_type
+              role = (agent as any).role ?? undefined
             }
+          }
+
+          // Allow role override from request body (for ad-hoc sessions)
+          if (body.role) {
+            role = body.role as string
           }
 
           for await (const event of startSession({
@@ -163,6 +170,7 @@ export async function POST(req: NextRequest) {
             companyId,
             systemPromptOverride,
             skillType,
+            role,
           })) {
             send(event)
           }

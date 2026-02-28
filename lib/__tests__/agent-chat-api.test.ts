@@ -182,6 +182,67 @@ describe('POST /api/agents/chat', () => {
     expect(body).toContain('tool_result')
   })
 
+  it('passes role from agent to startSession config', async () => {
+    // When agentId is provided, the route fetches the agent and passes its role
+    mockSupabaseFrom.mockImplementation((table: string) => {
+      if (table === 'agents') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({
+                data: { system_prompt: 'You are a test agent', skill_type: 'retention', role: 'front-desk' },
+                error: null,
+              }),
+            }),
+          }),
+        }
+      }
+      // Default for users table
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { id: 'user-1', email: 'owner@test.com' },
+              error: null,
+            }),
+          }),
+        }),
+      }
+    })
+
+    mockStartSession.mockReturnValue(
+      fakeGenerator([
+        { type: 'session_created', sessionId: 'sess-1' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    await POST(makeReq({ action: 'start', goal: 'Handle inbound', agentId: 'agent-1' }))
+
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'front-desk',
+        skillType: 'retention',
+        systemPromptOverride: 'You are a test agent',
+      }),
+    )
+  })
+
+  it('allows role override from request body', async () => {
+    mockStartSession.mockReturnValue(
+      fakeGenerator([
+        { type: 'session_created', sessionId: 'sess-1' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    await POST(makeReq({ action: 'start', goal: 'Test', role: 'gm' }))
+
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'gm' }),
+    )
+  })
+
   it('sends error for start without goal', async () => {
     const response = await POST(makeReq({ action: 'start' }))
     expect(response.status).toBe(200) // SSE stream

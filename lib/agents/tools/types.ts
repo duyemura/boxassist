@@ -158,6 +158,8 @@ export interface SessionConfig {
   systemPromptOverride?: string | null
   /** Skill type for prompt assembly */
   skillType?: string
+  /** Role ID — loads lib/roles/<role>.md as Layer 0 identity */
+  role?: string
 }
 
 export interface ResumeInput {
