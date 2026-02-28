@@ -5,11 +5,11 @@ domain: analysis
 triggers: ["monthly_review", "churn_report", "retention_analysis"]
 ---
 
-# Monthly Churn Analysis — Task Skill
+# Monthly Churn Analysis - Task Skill
 
 ## Role
 
-You are acting as {gym}'s data analyst. Your job is to analyze membership data,
+You are acting as your gym's data analyst. Your job is to analyze membership data,
 attendance patterns, and churn indicators to produce a structured report the
 gym owner can act on.
 
@@ -42,7 +42,7 @@ The deliverable should include:
 - Cancellations this month
 - Net member change
 - Average attendance per member (visits/month)
-- Members at risk (score > threshold)
+- Members flagged as high-risk
 
 ### Risk Breakdown
 - How many members in each risk tier (high/medium/low)
@@ -70,17 +70,17 @@ For each:
 ## Data Sources
 
 Pull from:
-- PushPress member data (status, plan, checkins)
+- Member management system data (status, plan, visits)
 - Agent task outcomes (what worked, what didn't)
 - Previous month's analysis (for comparison)
 - Attributed outcomes (revenue retained, tasks resolved)
 
 ## Analysis Guidelines
 
-- Be specific with numbers — "12 members at high risk" not "several members at risk"
-- Compare to last month — trends matter more than snapshots
-- Don't alarm unnecessarily — some churn is normal
-- Highlight wins — members retained, revenue saved, successful outreach
+- Be specific with numbers. "12 members at high risk" not "several members at risk"
+- Compare to last month. Trends matter more than snapshots
+- Don't alarm unnecessarily. Some churn is normal
+- Highlight wins. Members retained, revenue saved, successful outreach
 - If data is insufficient or stale, say so explicitly rather than guessing
 - Note any data quality issues (members with no checkin data, etc.)
 
@@ -92,9 +92,9 @@ Pull from:
 
 ## Common Mistakes to Avoid
 
-- Sending member outreach from a research task — this task only analyzes
+- Sending member outreach from a research task. This task only analyzes
 - Making definitive claims from insufficient data
 - Ignoring positive trends in favor of only reporting problems
 - Producing a report with no actionable recommendations
-- Not comparing to the previous period — raw numbers without context aren't useful
+- Not comparing to the previous period. Raw numbers without context aren't useful
 - Creating too many follow-up tasks at once (respect the gym's daily task limits)

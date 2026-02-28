@@ -34,6 +34,8 @@ import {
   buildMemberData,
   ppApiHeaders,
   PP_PLATFORM_BASE,
+  mapV3RoleToPP,
+  mapV3ToPPCustomer,
 } from '../pushpress-platform'
 import type {
   PPCustomer,
@@ -433,5 +435,127 @@ describe('PP_PLATFORM_BASE', () => {
     expect(PP_PLATFORM_BASE).toContain('platform')
     // Must NOT be the old v3 API
     expect(PP_PLATFORM_BASE).not.toContain('/v3')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mapV3RoleToPP — v3 flat role/status → PPCustomerRole
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('mapV3RoleToPP', () => {
+  it('maps lead role to lead', () => {
+    expect(mapV3RoleToPP({ role: 'lead' })).toBe('lead')
+  })
+
+  it('maps lead status to lead', () => {
+    expect(mapV3RoleToPP({ status: 'lead' })).toBe('lead')
+  })
+
+  it('maps ex-member to ex-member', () => {
+    expect(mapV3RoleToPP({ role: 'ex-member' })).toBe('ex-member')
+  })
+
+  it('maps cancelled status to ex-member', () => {
+    expect(mapV3RoleToPP({ status: 'cancelled' })).toBe('ex-member')
+    expect(mapV3RoleToPP({ status: 'canceled' })).toBe('ex-member')
+  })
+
+  it('maps non-member to non-member', () => {
+    expect(mapV3RoleToPP({ role: 'non-member' })).toBe('non-member')
+  })
+
+  it('maps staff roles correctly', () => {
+    expect(mapV3RoleToPP({ role: 'admin' })).toBe('admin')
+    expect(mapV3RoleToPP({ role: 'coach' })).toBe('coach')
+    expect(mapV3RoleToPP({ role: 'frontdesk' })).toBe('frontdesk')
+    expect(mapV3RoleToPP({ role: 'superuser' })).toBe('superuser')
+  })
+
+  it('defaults to member for unknown role', () => {
+    expect(mapV3RoleToPP({})).toBe('member')
+    expect(mapV3RoleToPP({ role: 'active' })).toBe('member')
+  })
+
+  it('handles customer_role field', () => {
+    expect(mapV3RoleToPP({ customer_role: 'lead' })).toBe('lead')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mapV3ToPPCustomer — v3 flat customer → PPCustomer nested shape
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('mapV3ToPPCustomer', () => {
+  it('maps flat name fields to nested name object', () => {
+    const result = mapV3ToPPCustomer({
+      id: 'c1',
+      first_name: 'Jane',
+      last_name: 'Smith',
+      email: 'jane@test.com',
+    })
+    expect(result.name.first).toBe('Jane')
+    expect(result.name.last).toBe('Smith')
+    expect(result.id).toBe('c1')
+    expect(result.email).toBe('jane@test.com')
+  })
+
+  it('handles camelCase name fields', () => {
+    const result = mapV3ToPPCustomer({
+      id: 'c2',
+      firstName: 'Mike',
+      lastName: 'Jones',
+    })
+    expect(result.name.first).toBe('Mike')
+    expect(result.name.last).toBe('Jones')
+  })
+
+  it('maps memberSince to membershipDetails.initialMembershipStartDate', () => {
+    const result = mapV3ToPPCustomer({
+      id: 'c3',
+      memberSince: '2024-01-15',
+    })
+    expect(result.membershipDetails?.initialMembershipStartDate).toBe('2024-01-15')
+  })
+
+  it('falls through memberSince field alternatives', () => {
+    const result1 = mapV3ToPPCustomer({ id: 'c4', member_since: '2024-02-01' })
+    expect(result1.membershipDetails?.initialMembershipStartDate).toBe('2024-02-01')
+
+    const result2 = mapV3ToPPCustomer({ id: 'c5', created_at: '2024-03-01' })
+    expect(result2.membershipDetails?.initialMembershipStartDate).toBe('2024-03-01')
+
+    const result3 = mapV3ToPPCustomer({ id: 'c6', joinDate: '2024-04-01' })
+    expect(result3.membershipDetails?.initialMembershipStartDate).toBe('2024-04-01')
+  })
+
+  it('maps role using mapV3RoleToPP', () => {
+    const lead = mapV3ToPPCustomer({ id: 'c7', role: 'lead' })
+    expect(lead.role).toBe('lead')
+
+    const exMember = mapV3ToPPCustomer({ id: 'c8', status: 'cancelled' })
+    expect(exMember.role).toBe('ex-member')
+
+    const active = mapV3ToPPCustomer({ id: 'c9', role: 'member' })
+    expect(active.role).toBe('member')
+  })
+
+  it('handles missing fields gracefully', () => {
+    const result = mapV3ToPPCustomer({ id: 'c10' })
+    expect(result.name.first).toBe('')
+    expect(result.name.last).toBe('')
+    expect(result.email).toBe('')
+    expect(result.phone).toBeNull()
+    expect(result.membershipDetails?.initialMembershipStartDate).toBeNull()
+    expect(result.role).toBe('member')
+  })
+
+  it('maps phone field', () => {
+    const result = mapV3ToPPCustomer({ id: 'c11', phone: '+1-555-1234' })
+    expect(result.phone).toBe('+1-555-1234')
+  })
+
+  it('sets account type to primary', () => {
+    const result = mapV3ToPPCustomer({ id: 'c12' })
+    expect(result.account).toEqual({ type: 'primary' })
   })
 })

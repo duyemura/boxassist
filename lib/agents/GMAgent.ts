@@ -370,15 +370,15 @@ export class GMAgent extends BaseAgent {
       // Non-fatal
     }
 
-    const system = `You are an AI General Manager analyzing a business's client data. Your job is to identify clients who need attention — people at risk of disengaging, payment issues, or any situation where proactive outreach would help retain them.
+    const system = `You are an AI General Manager analyzing a business's client data. Your job is to identify clients who need attention: people at risk of disengaging, payment issues, or any situation where proactive outreach would help retain them.
 
 ## Available approaches (you can also describe new situations if none fit):
 ${skillSummaries}
 
 ## Rules:
-- Only flag people who genuinely need attention — don't create noise
+- Only flag people who genuinely need attention. Don't create noise
 - Consider each person's full context: visit frequency, tenure, revenue, trends
-- What counts as "normal" varies by business — reason about what's typical for THIS business based on the data patterns you see
+- What counts as "normal" varies by business. Reason about what's typical for THIS business based on the data patterns you see
 - Payment failures are always critical
 - New clients (< 30 days) with no visits need onboarding attention
 - Don't flag people who visited in the last 3 days (they're active)
@@ -555,9 +555,9 @@ Analyze these clients and return the ones who need attention.`
         }
       } catch {
         // Final fallback
-        system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names.
+        system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice, not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names. NEVER use emdashes.
 
-Return ONLY the message text — no subject line, no explanation, just the message.`
+Return ONLY the message text, no subject line, no explanation, just the message.`
       }
     }
 
@@ -628,7 +628,7 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
         memberName,
         memberEmail,
         title: `${memberName} paused their membership`,
-        detail: `${memberName} paused. Pauses often precede full cancellation — a check-in can prevent churn.`,
+        detail: `${memberName} paused. Pauses often precede full cancellation, a check-in can prevent churn.`,
         recommendedAction: 'Check in to understand the reason for pause',
         estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue}/mo at risk` : 'Revenue at risk',
       }

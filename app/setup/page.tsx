@@ -151,7 +151,7 @@ function Header({ onSkip }: { onSkip?: () => void }) {
 // ── Progress ─────────────────────────────────────────────────────────────────
 
 function Progress({ step }: { step: number }) {
-  const labels = ['Build', 'Schedule']
+  const labels = ['Build', 'Customize']
   return (
     <div className="flex items-center gap-0 mb-10">
       {labels.map((label, i) => {
@@ -219,7 +219,8 @@ function LoadingScreen() {
             </svg>
           </div>
         </div>
-        <h2 className="text-lg font-bold text-gray-900 mb-2">Learning your gym</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-1">Build your first GymAgent</h2>
+        <p className="text-xs text-gray-400 mb-4">Analyzing your gym to recommend a high-value agent based on your data.</p>
         <p className="text-sm transition-opacity duration-500" style={{ color: '#6B7280' }} key={msgIndex}>
           {LOADING_MESSAGES[msgIndex]}
         </p>
@@ -230,28 +231,53 @@ function LoadingScreen() {
 
 // ── Recommendation card ──────────────────────────────────────────────────────
 
+function formatSyncAge(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 function RecommendationCard({
-  rec, accountName, onAccept, onCustomize, onSkip,
+  rec, accountName, onAccept, onCustomize, onSkip, lastSyncedAt, wasCached, onRefresh,
 }: {
   rec: Recommendation
   accountName: string
   onAccept: () => void
   onCustomize: () => void
   onSkip: () => void
+  lastSyncedAt: string | null
+  wasCached: boolean
+  onRefresh: () => void
 }) {
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F8F9FB' }}>
       <Header onSkip={onSkip} />
       <div className="flex-1 flex flex-col items-center px-4 py-12">
         <div className="w-full max-w-xl">
+          {/* Top header: context → label → name → description → reasoning */}
           <div className="mb-6">
-            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-2">
+            <h2 className="text-sm font-bold text-gray-900 mb-0.5">Build your first GymAgent</h2>
+            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-4">
               RECOMMENDED FOR {accountName.toUpperCase()}
             </p>
-            <h1 className="text-xl font-bold text-gray-900">{rec.headline}</h1>
+            <h1 className="text-xl font-bold text-gray-900">{rec.name}</h1>
+            <p className="text-sm text-gray-500 mt-1">{rec.description}</p>
+            <div className="mt-4 px-4 py-3 flex items-start gap-3" style={{ backgroundColor: '#F0F6FF', borderLeft: '3px solid #0063FF' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0063FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+              <p className="text-sm text-gray-800 leading-snug">{rec.reasoning}</p>
+            </div>
           </div>
 
-          <div className="flex gap-3 mb-4">
+          {/* Stats + sync timestamp */}
+          <div className="flex gap-3 mb-1.5">
             {rec.stats.map((stat, i) => (
               <div key={i} className="flex-1 border p-4 bg-white" style={{ borderColor: stat.emphasis ? '#0063FF' : '#E5E7EB' }}>
                 <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1">{stat.label}</p>
@@ -259,18 +285,42 @@ function RecommendationCard({
               </div>
             ))}
           </div>
+          {lastSyncedAt && (
+            <div className="flex items-center gap-2 mb-4">
+              <p className="text-[10px] text-gray-400">
+                {wasCached ? 'Using data from' : 'Data pulled'} {formatSyncAge(lastSyncedAt)}
+              </p>
+              {wasCached && (
+                <button
+                  onClick={onRefresh}
+                  className="text-[10px] font-semibold transition-colors"
+                  style={{ color: '#0063FF' }}
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+          )}
+          {!lastSyncedAt && <div className="mb-4" />}
+
+          {/* How it works panel */}
           <div className="bg-white border border-gray-200 p-5 mb-6">
-            <p className="text-xs text-gray-500 leading-relaxed mb-4">{rec.reasoning}</p>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: '#0063FF' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a10 10 0 1 0 10 10H12V2Z" /><path d="M12 2a10 10 0 0 1 10 10" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">{rec.name}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{rec.description}</p>
-              </div>
+            <h3 className="text-sm font-bold text-gray-900 mb-3">How it works</h3>
+            <div className="space-y-2.5">
+              {getHowItWorks(rec).map((howStep, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <div className="w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
+                    {i + 1}
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">{howStep}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex items-start gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <p className="text-xs text-gray-400">Nothing sends without your approval.</p>
             </div>
           </div>
 
@@ -317,10 +367,10 @@ function FirstRunScreen({
           </div>
 
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Let's see what {agentName} can do.
+            Let's run your {agentName} Agent.
           </h1>
           <p className="text-sm text-gray-400 mb-8">
-            Run it once against your gym's live data to see what it finds. Takes about 20 seconds.
+            It'll scan your live PushPress data and show you what it finds. Takes about 20 seconds.
           </p>
 
           {/* Agent card */}
@@ -499,6 +549,8 @@ export default function SetupPage() {
   const [accountName, setAccountName] = useState('')
   const [loadError, setLoadError] = useState('')
   const [fromRecommendation, setFromRecommendation] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [wasCached, setWasCached] = useState(false)
 
   // Build fields
   const [agentName, setAgentName] = useState('')
@@ -519,6 +571,11 @@ export default function SetupPage() {
   const [runStatusMessages, setRunStatusMessages] = useState<string[]>([])
   const [runActions, setRunActions] = useState<RunAction[]>([])
 
+  // AI-generated custom instructions
+  const [generatedInstructions, setGeneratedInstructions] = useState<string | null>(null)
+  const [generatingInstructions, setGeneratingInstructions] = useState(false)
+  const userEditedPrompt = useRef(false)
+
   const fieldCls = 'w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors'
   const labelCls = 'text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block'
 
@@ -527,11 +584,12 @@ export default function SetupPage() {
 
   // ── Fetch recommendation ────────────────────────────────────────────────────
 
-  const fetchRecommendation = async () => {
+  const fetchRecommendation = async (force = false) => {
     setPhase('loading')
     setLoadError('')
     try {
-      const res = await fetch('/api/setup/recommend', { method: 'POST' })
+      const url = force ? '/api/setup/recommend?force=true' : '/api/setup/recommend'
+      const res = await fetch(url, { method: 'POST' })
       if (res.status === 401) {
         router.replace('/')
         return
@@ -540,15 +598,44 @@ export default function SetupPage() {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || `Failed to analyze (${res.status})`)
       }
-      const { recommendation: rec, snapshotSummary } = await res.json()
+      const { recommendation: rec, snapshotSummary, cached, lastSyncedAt: syncedAt } = await res.json()
+      const name = snapshotSummary?.accountName || 'Your Gym'
       setRecommendation(rec)
-      setAccountName(snapshotSummary?.accountName || 'Your Gym')
+      setAccountName(name)
+      setLastSyncedAt(syncedAt ?? null)
+      setWasCached(cached ?? false)
 
       setPhase('recommendation')
+
+      // Fire instruction generation in background so it's ready when user reaches step 2
+      generateInstructions(rec, name)
     } catch (err: any) {
       console.error('[setup] recommendation fetch failed:', err)
       setLoadError(err.message)
       setPhase('loading-error')
+    }
+  }
+
+  const generateInstructions = async (rec: Recommendation, gymName: string) => {
+    setGeneratingInstructions(true)
+    try {
+      const res = await fetch('/api/setup/generate-instructions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentType: rec.agentType,
+          agentName: rec.name,
+          accountName: gymName,
+          stats: rec.stats,
+          description: rec.description,
+        }),
+      })
+      if (res.ok) {
+        const { instructions } = await res.json()
+        setGeneratedInstructions(instructions)
+      }
+    } catch { /* non-critical — user can type their own */ } finally {
+      setGeneratingInstructions(false)
     }
   }
 
@@ -558,13 +645,21 @@ export default function SetupPage() {
     fetchRecommendation()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fill custom instructions when they arrive and user is on step 2
+  useEffect(() => {
+    if (generatedInstructions && phase === 'build' && step === 2 && !userEditedPrompt.current && !systemPrompt) {
+      setSystemPrompt(generatedInstructions)
+    }
+  }, [generatedInstructions, phase, step]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Accept recommendation → skip to schedule ────────────────────────────────
 
   const handleAcceptRecommendation = () => {
     if (!recommendation) return
+    userEditedPrompt.current = false
     setAgentName(recommendation.name)
     setDescription(recommendation.description)
-    setSystemPrompt('')
+    setSystemPrompt(generatedInstructions || '')
     setAgentSkillType(recommendation.agentType)
     setFastPath(true)
     if (recommendation.trigger.mode === 'event' && recommendation.trigger.event) {
@@ -762,6 +857,9 @@ export default function SetupPage() {
         onAccept={handleAcceptRecommendation}
         onCustomize={handleCustomize}
         onSkip={() => router.push('/dashboard')}
+        lastSyncedAt={lastSyncedAt}
+        wasCached={wasCached}
+        onRefresh={() => fetchRecommendation(true)}
       />
     )
   }
@@ -833,34 +931,63 @@ export default function SetupPage() {
             </div>
           )}
 
-          {/* Step 2: Schedule */}
+          {/* Step 2: Customize */}
           {step === 2 && (
             <div>
-              {/* How it works — shown when coming from recommendation (fast or customize path) */}
-              {recommendation && (
-                <div className="border border-gray-200 bg-white p-5 mb-6">
-                  <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">HOW IT WORKS</p>
-                  <div className="space-y-3">
-                    {getHowItWorks(recommendation).map((howItWorksStep, i) => (
-                      <div key={i} className="flex items-start gap-3">
-                        <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
-                          {i + 1}
+              <h1 className="text-xl font-bold text-gray-900 mb-1">Customize</h1>
+              <p className="text-sm text-gray-400 mb-6">Fine-tune your agent and set when it runs.</p>
+
+              {/* Agent prompt — shown on fast path (recommendation accepted) */}
+              {fastPath && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className={labelCls + ' mb-0'}>AGENT PROMPT</label>
+                    <button
+                      onClick={() => {
+                        if (recommendation) {
+                          userEditedPrompt.current = false
+                          setSystemPrompt('')
+                          generateInstructions(recommendation, accountName)
+                        }
+                      }}
+                      disabled={generatingInstructions}
+                      className="flex items-center gap-1 text-[10px] font-semibold transition-opacity hover:opacity-70 disabled:opacity-40"
+                      style={{ color: '#0063FF' }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                        <path d="m4 16 2.3-6.4a.5.5 0 0 1 .8-.2l3.5 3.5a.5.5 0 0 1-.2.8L4 16"/>
+                      </svg>
+                      Regenerate
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <textarea
+                      value={systemPrompt}
+                      onChange={e => { setSystemPrompt(e.target.value); userEditedPrompt.current = true }}
+                      rows={10}
+                      className={fieldCls + ' resize-y text-xs leading-relaxed'}
+                      placeholder={generatingInstructions ? '' : `You are a ${agentName} representing ${accountName}...`}
+                      disabled={generatingInstructions}
+                    />
+                    {generatingInstructions && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-white border border-gray-200">
+                        <div className="flex flex-col items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-t-transparent animate-spin" style={{ borderColor: '#0063FF', borderTopColor: 'transparent', borderRadius: '50%' }} />
+                          <span className="text-xs text-gray-400">Writing a prompt tailored to {accountName}...</span>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{howItWorksStep}</p>
                       </div>
-                    ))}
+                    )}
                   </div>
-                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-start gap-2">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                    </svg>
-                    <p className="text-xs text-gray-500">Nothing sends without your approval. You review every message before it goes out.</p>
-                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    AI-written from your gym's data. Edit anything — this is your agent's personality.
+                  </p>
                 </div>
               )}
 
-              <h1 className="text-xl font-bold text-gray-900 mb-1">When should it run?</h1>
-              <p className="text-sm text-gray-400 mb-6">You can change this any time from your dashboard.</p>
+              {/* Schedule */}
+              <label className={labelCls}>SCHEDULE</label>
+              <p className="text-xs text-gray-400 mb-3">You can change this anytime from your dashboard.</p>
 
               <div className="grid grid-cols-2 gap-2 mb-4">
                 {TRIGGER_OPTIONS.map(t => {
@@ -897,26 +1024,6 @@ export default function SetupPage() {
                   <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} className={fieldCls + ' bg-white'}>
                     {PUSHPRESS_EVENTS.map(ev => <option key={ev.value} value={ev.value}>{ev.label}</option>)}
                   </select>
-                </div>
-              )}
-
-              {/* Custom instructions — only shown on fast path (recommendation accepted without customizing) */}
-              {fastPath && (
-                <div className="mb-4 pt-2 border-t border-gray-100">
-                  <label className={labelCls}>
-                    Custom instructions{' '}
-                    <span className="normal-case font-normal tracking-normal text-gray-400">— optional</span>
-                  </label>
-                  <textarea
-                    value={systemPrompt}
-                    onChange={e => setSystemPrompt(e.target.value)}
-                    rows={3}
-                    className={fieldCls + ' resize-none'}
-                    placeholder={`e.g. "Sign off as Coach Mike" or "Focus on members who've been here 3+ months"`}
-                  />
-                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-                    This agent already knows what to look for. Add anything specific to your gym — tone, sign-off name, who to prioritize.
-                  </p>
                 </div>
               )}
 

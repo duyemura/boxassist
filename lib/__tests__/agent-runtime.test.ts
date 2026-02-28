@@ -186,7 +186,8 @@ describe('agent-runtime', () => {
       expect(prompt).toContain('Sarah Johnson')
       expect(prompt).toContain('Mike Torres')
       expect(prompt).toContain('Test Gym')
-      expect(prompt).toContain('2 members')
+      expect(prompt).toContain('1 active')
+      expect(prompt).toContain('1 ex-members')
     })
 
     it('includes payment issues section', () => {
@@ -199,18 +200,79 @@ describe('agent-runtime', () => {
     it('includes leads section', () => {
       const prompt = formatSnapshotCompact(makeSnapshot())
 
-      expect(prompt).toContain('Open Leads')
+      expect(prompt).toContain('Prospects / Leads')
       expect(prompt).toContain('New Lead')
     })
 
     it('omits empty sections', () => {
       const prompt = formatSnapshotCompact(makeSnapshot({
+        members: [
+          {
+            id: 'm1', name: 'Sarah Johnson', email: 'sarah@example.com',
+            status: 'active', membershipType: 'Unlimited',
+            memberSince: '2025-06-01', lastCheckinAt: '2026-02-08',
+            recentCheckinsCount: 2, previousCheckinsCount: 12, monthlyRevenue: 150,
+          },
+        ],
         paymentEvents: [],
         recentLeads: [],
       }))
 
       expect(prompt).not.toContain('Payment Issues')
-      expect(prompt).not.toContain('Open Leads')
+      expect(prompt).not.toContain('Prospects / Leads')
+      expect(prompt).not.toContain('Ex-Members')
+    })
+
+    it('separates prospects from active members', () => {
+      const prompt = formatSnapshotCompact(makeSnapshot({
+        members: [
+          {
+            id: 'm1', name: 'Active Member', email: 'active@example.com',
+            status: 'active', membershipType: 'Unlimited',
+            memberSince: '2025-06-01', lastCheckinAt: '2026-02-20',
+            recentCheckinsCount: 8, previousCheckinsCount: 10, monthlyRevenue: 150,
+          },
+          {
+            id: 'p1', name: 'Ghost Lead', email: 'ghost@example.com',
+            status: 'prospect', membershipType: null,
+            memberSince: '2025-10-01', lastCheckinAt: null,
+            recentCheckinsCount: 0, previousCheckinsCount: 0, monthlyRevenue: 0,
+          },
+        ],
+        recentLeads: [],
+      }))
+
+      expect(prompt).toContain('Active Members')
+      expect(prompt).toContain('Prospects / Leads')
+      expect(prompt).toContain('Ghost Lead')
+      expect(prompt).toContain('1 active')
+      expect(prompt).toContain('1 prospects')
+    })
+
+    it('separates ex-members into their own section', () => {
+      const prompt = formatSnapshotCompact(makeSnapshot({
+        members: [
+          {
+            id: 'm1', name: 'Active Member', email: 'active@example.com',
+            status: 'active', membershipType: 'Unlimited',
+            memberSince: '2025-06-01', lastCheckinAt: '2026-02-20',
+            recentCheckinsCount: 8, previousCheckinsCount: 10, monthlyRevenue: 150,
+          },
+          {
+            id: 'x1', name: 'Former Member', email: 'former@example.com',
+            status: 'cancelled', membershipType: 'Monthly',
+            memberSince: '2025-03-01', lastCheckinAt: '2026-01-10',
+            recentCheckinsCount: 0, previousCheckinsCount: 0, monthlyRevenue: 99,
+          },
+        ],
+        recentLeads: [],
+      }))
+
+      expect(prompt).toContain('Active Members')
+      expect(prompt).toContain('Ex-Members')
+      expect(prompt).toContain('Former Member')
+      expect(prompt).toContain('1 active')
+      expect(prompt).toContain('1 ex-members')
     })
   })
 

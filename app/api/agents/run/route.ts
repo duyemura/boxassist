@@ -11,6 +11,7 @@ import { calcCost, calcTimeSaved } from '@/lib/cost'
 import { createInsightTask } from '@/lib/db/tasks'
 import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
 import { buildAccountSnapshot } from '@/lib/pushpress-platform'
+import { harvestDataLenses } from '@/lib/data-lens'
 import type { AccountInsight, AccountSnapshot } from '@/lib/agents/GMAgent'
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from '@/lib/models'
@@ -171,6 +172,13 @@ export async function POST(req: NextRequest) {
           emit({ type: 'error', message: `Failed to fetch PushPress data: ${err.message}` })
           controller.close()
           return
+        }
+
+        // Harvest data lens memories (segments snapshot into refreshable summaries)
+        try {
+          await harvestDataLenses(accountId, snapshot)
+        } catch (err: any) {
+          console.warn('[agents/run] Data lens harvest failed (non-fatal):', err?.message)
         }
 
         emit({ type: 'status', text: `Loaded ${snapshot.members.length} members \u2014 fetching active agents\u2026` })

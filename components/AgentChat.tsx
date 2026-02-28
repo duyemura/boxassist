@@ -40,6 +40,16 @@ interface ChatMessage {
   approved?: boolean | null
 }
 
+interface RunSummary {
+  id: string
+  goal: string
+  status: string
+  turn_count: number
+  cost_cents: number
+  created_at: string
+  updated_at: string
+}
+
 interface AgentChatProps {
   accountId: string
   /** Pre-selected agent ID (optional) */
@@ -57,6 +67,30 @@ interface AgentChatProps {
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr)
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+}
+
+function relativeTime(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function runStatusStyle(status: string): { label: string; color: string } {
+  switch (status) {
+    case 'active': return { label: 'Working', color: '#F59E0B' }
+    case 'waiting_input': return { label: 'Your turn', color: '#22C55E' }
+    case 'waiting_approval': return { label: 'Needs approval', color: '#F59E0B' }
+    case 'completed': return { label: 'Done', color: '#9CA3AF' }
+    case 'failed': return { label: 'Failed', color: '#DC2626' }
+    default: return { label: status, color: '#9CA3AF' }
+  }
 }
 
 function toolDisplayName(name: string): string {
@@ -271,32 +305,97 @@ function ApprovalCard({
   )
 }
 
-// ── ModeSelector ─────────────────────────────────────────────────────────────
+// ── RunsListView ──────────────────────────────────────────────────────────────
 
-function ModeSelector({ mode, onChange, disabled }: { mode: AutonomyMode; onChange: (m: AutonomyMode) => void; disabled: boolean }) {
-  const modes: Array<{ value: AutonomyMode; label: string; desc: string }> = [
-    { value: 'semi_auto', label: 'Semi-auto', desc: 'Pauses on actions' },
-    { value: 'full_auto', label: 'Full auto', desc: 'No pauses' },
-    { value: 'turn_based', label: 'Turn-based', desc: 'One step at a time' },
-  ]
+function RunsListView({
+  runs,
+  loading,
+  onSelect,
+  onNew,
+}: {
+  runs: RunSummary[]
+  loading: boolean
+  onSelect: (run: RunSummary) => void
+  onNew: () => void
+}) {
   return (
-    <div className="flex items-center gap-1">
-      {modes.map(m => (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-900">Conversations</span>
         <button
-          key={m.value}
-          onClick={() => onChange(m.value)}
-          disabled={disabled}
-          className="text-[10px] font-semibold px-2 py-1 transition-opacity disabled:opacity-50"
-          style={{
-            backgroundColor: mode === m.value ? '#EEF5FF' : 'transparent',
-            color: mode === m.value ? '#0063FF' : '#9CA3AF',
-            border: `1px solid ${mode === m.value ? 'rgba(0,99,255,0.2)' : '#E5E7EB'}`,
-          }}
-          title={m.desc}
+          onClick={onNew}
+          className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
+          style={{ backgroundColor: '#0063FF', borderRadius: 4 }}
         >
-          {m.label}
+          + New
         </button>
-      ))}
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto" style={{ backgroundColor: '#F8F9FB' }}>
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <span className="text-xs text-gray-400">Loading...</span>
+          </div>
+        )}
+
+        {!loading && runs.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center py-12 px-6">
+            <div className="w-10 h-10 flex items-center justify-center mb-3"
+                 style={{ backgroundColor: 'rgba(0,99,255,0.08)' }}>
+              <span className="text-lg" role="img" aria-label="chat">&#x1F4AC;</span>
+            </div>
+            <p className="text-sm font-medium text-gray-700 mb-1">No conversations yet</p>
+            <p className="text-xs text-gray-400 leading-relaxed max-w-xs">
+              Start your first conversation to get help from this agent.
+            </p>
+            <button
+              onClick={onNew}
+              className="mt-4 text-xs font-semibold text-white px-4 py-2 transition-opacity hover:opacity-80"
+              style={{ backgroundColor: '#0063FF', borderRadius: 4 }}
+            >
+              Start a conversation
+            </button>
+          </div>
+        )}
+
+        {!loading && runs.map(run => {
+          const { label, color } = runStatusStyle(run.status)
+          return (
+            <button
+              key={run.id}
+              onClick={() => onSelect(run)}
+              className="w-full text-left px-4 py-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm text-gray-900 font-medium leading-snug flex-1 line-clamp-2">
+                  {run.goal || 'Untitled session'}
+                </p>
+                <span
+                  className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 leading-tight"
+                  style={{ color, backgroundColor: `${color}18`, border: `1px solid ${color}35` }}
+                >
+                  {label}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10px] text-gray-400">{relativeTime(run.created_at)}</span>
+                {run.turn_count > 0 && (
+                  <span className="text-[10px] text-gray-300">
+                    · {run.turn_count} turn{run.turn_count === 1 ? '' : 's'}
+                  </span>
+                )}
+                {run.cost_cents > 0 && (
+                  <span className="text-[10px] text-gray-300">
+                    · ${(run.cost_cents / 100).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -312,6 +411,10 @@ const KEYFRAME_STYLE = `
 `
 
 export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreated, onComplete }: AgentChatProps) {
+  const [view, setView] = useState<'list' | 'chat'>(agentId && !initialGoal ? 'list' : 'chat')
+  const [runs, setRuns] = useState<RunSummary[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
@@ -326,6 +429,62 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // ── Runs management ────────────────────────────────────────────────────────
+
+  const loadRuns = useCallback(async () => {
+    if (!agentId) return
+    setRunsLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/runs`)
+      if (res.ok) {
+        const data = await res.json()
+        setRuns(data.runs ?? [])
+      }
+    } finally {
+      setRunsLoading(false)
+    }
+  }, [agentId])
+
+  const loadSession = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/agents/runs/${runId}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setSessionId(data.session.id)
+      setMessages(data.messages ?? [])
+      setStatus(data.session.status)
+      setTurnCount(data.session.turn_count ?? 0)
+      setCostCents(data.session.cost_cents ?? 0)
+      setPendingApprovals([])
+      setInputText('')
+      setView('chat')
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const startNew = useCallback(() => {
+    setSessionId(null)
+    setMessages([])
+    setStatus('idle')
+    setTurnCount(0)
+    setCostCents(0)
+    setPendingApprovals([])
+    setGoalText('')
+    setInputText('')
+    setView('chat')
+  }, [])
+
+  const goToList = useCallback(() => {
+    setView('list')
+    loadRuns()
+  }, [loadRuns])
+
+  // Load runs when entering list view
+  useEffect(() => {
+    if (view === 'list') loadRuns()
+  }, [view, loadRuns])
+
   // Auto-scroll on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -334,6 +493,7 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
   // Auto-start if initialGoal provided
   useEffect(() => {
     if (initialGoal && !sessionId) {
+      setView('chat')
       startSession(initialGoal)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -609,199 +769,229 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
   return (
     <div className="flex flex-col h-full">
       <style dangerouslySetInnerHTML={{ __html: KEYFRAME_STYLE }} />
-      {/* Header */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{
-                backgroundColor:
-                  status === 'active' || thinking ? '#F59E0B'
-                  : status === 'completed' ? '#9CA3AF'
-                  : status === 'failed' ? '#DC2626'
-                  : status === 'waiting_approval' ? '#F59E0B'
-                  : '#22C55E',
-              }}
-            />
-            <span className="text-sm font-semibold text-gray-900">Agent Session</span>
+
+      {/* Runs list view */}
+      {view === 'list' && agentId ? (
+        <RunsListView
+          runs={runs}
+          loading={runsLoading}
+          onSelect={run => loadSession(run.id)}
+          onNew={startNew}
+        />
+      ) : (
+        <>
+          {/* Header */}
+          <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {agentId && (
+                  <button
+                    onClick={goToList}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors mr-1"
+                    title="Back to conversations"
+                  >
+                    ← Back
+                  </button>
+                )}
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor:
+                      status === 'active' || thinking ? '#F59E0B'
+                      : status === 'completed' ? '#9CA3AF'
+                      : status === 'failed' ? '#DC2626'
+                      : status === 'waiting_approval' ? '#F59E0B'
+                      : '#22C55E',
+                  }}
+                />
+                <span className="text-sm font-semibold text-gray-900">Agent Session</span>
+                {sessionId && (
+                  <span className="text-[10px] font-semibold" style={{
+                    color:
+                      status === 'active' || thinking ? '#F59E0B'
+                      : status === 'completed' ? '#9CA3AF'
+                      : status === 'failed' ? '#DC2626'
+                      : '#22C55E',
+                  }}>
+                    {status === 'active' || thinking ? 'Working...'
+                      : status === 'waiting_input' ? 'Your turn'
+                      : status === 'waiting_approval' ? 'Needs approval'
+                      : status === 'waiting_event' ? 'Waiting for reply'
+                      : status === 'completed' ? 'Done'
+                      : status === 'failed' ? 'Failed'
+                      : 'Ready'}
+                  </span>
+                )}
+              </div>
+              {status === 'completed' && agentId && (
+                <button
+                  onClick={startNew}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  New conversation
+                </button>
+              )}
+            </div>
             {sessionId && (
-              <span className="text-[10px] font-semibold" style={{
-                color:
-                  status === 'active' || thinking ? '#F59E0B'
-                  : status === 'completed' ? '#9CA3AF'
-                  : status === 'failed' ? '#DC2626'
-                  : '#22C55E',
-              }}>
-                {status === 'active' || thinking ? 'Working...'
-                  : status === 'waiting_input' ? 'Your turn'
-                  : status === 'waiting_approval' ? 'Needs approval'
-                  : status === 'waiting_event' ? 'Waiting for reply'
-                  : status === 'completed' ? 'Done'
-                  : status === 'failed' ? 'Failed'
-                  : 'Ready'}
-              </span>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                Turn {turnCount}{costCents > 0 ? ` · $${(costCents / 100).toFixed(2)}` : ''}
+              </p>
             )}
           </div>
-        </div>
-        {sessionId && (
-          <p className="text-[10px] text-gray-400 mt-0.5">
-            Turn {turnCount}{costCents > 0 ? ` · $${(costCents / 100).toFixed(2)}` : ''}
-          </p>
-        )}
-      </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1" style={{ backgroundColor: '#F8F9FB' }}>
-        {messages.length === 0 && !sessionId && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
-            <div className="w-10 h-10 flex items-center justify-center mb-3"
-                 style={{ backgroundColor: 'rgba(0,99,255,0.08)' }}>
-              <span className="text-lg" role="img" aria-label="chat">&#x1F916;</span>
-            </div>
-            <p className="text-sm font-medium text-gray-700 mb-1">Start an agent session</p>
-            <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
-              Tell the agent what you want to accomplish. It will gather data, take actions, and learn as it goes.
-            </p>
-          </div>
-        )}
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1" style={{ backgroundColor: '#F8F9FB' }}>
+            {messages.length === 0 && !sessionId && (
+              <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                <div className="w-10 h-10 flex items-center justify-center mb-3"
+                     style={{ backgroundColor: 'rgba(0,99,255,0.08)' }}>
+                  <span className="text-lg" role="img" aria-label="chat">&#x1F916;</span>
+                </div>
+                <p className="text-sm font-medium text-gray-700 mb-1">Start an agent session</p>
+                <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+                  Tell the agent what you want to accomplish. It will gather data, take actions, and learn as it goes.
+                </p>
+              </div>
+            )}
 
-        {messages.map(msg => {
-          if (msg.role === 'user') {
-            return (
-              <div key={msg.id} className="flex justify-end mb-3">
-                <div className="max-w-[75%]">
-                  <div className="px-4 py-2.5 text-sm text-white leading-relaxed"
-                       style={{ backgroundColor: '#0063FF', borderRadius: '12px 12px 2px 12px' }}>
-                    {msg.content}
+            {messages.map(msg => {
+              if (msg.role === 'user') {
+                return (
+                  <div key={msg.id} className="flex justify-end mb-3">
+                    <div className="max-w-[75%]">
+                      <div className="px-4 py-2.5 text-sm text-white leading-relaxed"
+                           style={{ backgroundColor: '#0063FF', borderRadius: '12px 12px 2px 12px' }}>
+                        {msg.content}
+                      </div>
+                      <p className="text-[10px] text-gray-300 mt-1 text-right">{formatTime(msg.timestamp)}</p>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-gray-300 mt-1 text-right">{formatTime(msg.timestamp)}</p>
-                </div>
-              </div>
-            )
-          }
-
-          if (msg.role === 'assistant') {
-            return (
-              <div key={msg.id} className="flex justify-start mb-3">
-                <div className="max-w-[85%]">
-                  <div className="bg-white border border-gray-100 px-4 py-3 text-sm text-gray-900 leading-relaxed"
-                       style={{ borderRadius: '2px 12px 12px 12px' }}>
-                    <SimpleMarkdown text={msg.content} />
-                  </div>
-                  <p className="text-[10px] text-gray-300 mt-1">{formatTime(msg.timestamp)}</p>
-                </div>
-              </div>
-            )
-          }
-
-          if (msg.role === 'tool_call') {
-            return (
-              <div key={msg.id} className="flex justify-start mb-1">
-                <div className="max-w-[80%]">
-                  <ToolCallBadge name={msg.toolName!} input={msg.toolInput} />
-                </div>
-              </div>
-            )
-          }
-
-          if (msg.role === 'tool_result') {
-            return (
-              <div key={msg.id} className="flex justify-start mb-1">
-                <div className="max-w-[80%]">
-                  <ToolResultBadge name={msg.toolName!} result={msg.toolResult} />
-                </div>
-              </div>
-            )
-          }
-
-          if (msg.role === 'system') {
-            return (
-              <div key={msg.id} className="flex flex-col items-center py-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-px w-12 bg-gray-100" />
-                  <span className="text-[10px] text-gray-300 text-center">{formatTime(msg.timestamp)}</span>
-                  <div className="h-px w-12 bg-gray-100" />
-                </div>
-                <p className="text-xs text-gray-400 mt-1 text-center max-w-sm leading-relaxed">{msg.content}</p>
-              </div>
-            )
-          }
-
-          return null
-        })}
-
-        {/* Pending approvals */}
-        {showApprovals && pendingApprovals.map(p => (
-          <ApprovalCard
-            key={p.toolUseId}
-            pending={p}
-            onApprove={() => {
-              const approvals = Object.fromEntries(
-                pendingApprovals.map(pa => [pa.toolUseId, pa.toolUseId === p.toolUseId])
-              )
-              handleApproval(approvals)
-            }}
-            onReject={() => {
-              const approvals = Object.fromEntries(
-                pendingApprovals.map(pa => [pa.toolUseId, pa.toolUseId === p.toolUseId ? false : true])
-              )
-              handleApproval(approvals)
-            }}
-            disabled={thinking}
-          />
-        ))}
-
-        {thinking && <ThinkingDots />}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input bar */}
-      <div className="flex-shrink-0 border-t border-gray-100 p-3">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={status === 'idle' && !sessionId ? goalText : inputText}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            disabled={isInputDisabled && !canSendMessage && status !== 'idle'}
-            placeholder={
-              status === 'idle' && !sessionId
-                ? 'What should the agent work on?'
-                : canSendMessage
-                  ? 'Type a message...'
-                  : thinking
-                    ? 'Agent is working...'
-                    : status === 'completed'
-                      ? 'Session complete'
-                      : 'Type a message...'
-            }
-            className="flex-1 resize-none text-sm text-gray-900 placeholder-gray-300 border border-gray-200 px-3 py-2 focus:outline-none focus:border-blue-400 disabled:opacity-50 leading-relaxed"
-            style={{ borderRadius: 4, maxHeight: 120, overflowY: 'auto', minHeight: 38 }}
-            rows={1}
-          />
-          <button
-            onClick={() => {
-              if (status === 'idle' && !sessionId) {
-                if (goalText.trim()) startSession(goalText.trim())
-              } else {
-                sendMessage(inputText)
+                )
               }
-            }}
-            disabled={
-              (status === 'idle' && !sessionId && !goalText.trim()) ||
-              (status !== 'idle' && !inputText.trim() && !canSendMessage) ||
-              (thinking)
-            }
-            className="flex-shrink-0 text-xs font-semibold text-white px-3 py-2 transition-opacity hover:opacity-80 disabled:opacity-30 flex items-center gap-1"
-            style={{ backgroundColor: '#0063FF', borderRadius: 4, height: 38 }}
-          >
-            {status === 'idle' && !sessionId ? 'Start' : 'Send'} &rarr;
-          </button>
-        </div>
-        <p className="text-[10px] text-gray-300 mt-1.5">Enter to {status === 'idle' && !sessionId ? 'start' : 'send'} · Shift+Enter for new line</p>
-      </div>
+
+              if (msg.role === 'assistant') {
+                return (
+                  <div key={msg.id} className="flex justify-start mb-3">
+                    <div className="max-w-[85%]">
+                      <div className="bg-white border border-gray-100 px-4 py-3 text-sm text-gray-900 leading-relaxed"
+                           style={{ borderRadius: '2px 12px 12px 12px' }}>
+                        <SimpleMarkdown text={msg.content} />
+                      </div>
+                      <p className="text-[10px] text-gray-300 mt-1">{formatTime(msg.timestamp)}</p>
+                    </div>
+                  </div>
+                )
+              }
+
+              if (msg.role === 'tool_call') {
+                return (
+                  <div key={msg.id} className="flex justify-start mb-1">
+                    <div className="max-w-[80%]">
+                      <ToolCallBadge name={msg.toolName!} input={msg.toolInput} />
+                    </div>
+                  </div>
+                )
+              }
+
+              if (msg.role === 'tool_result') {
+                return (
+                  <div key={msg.id} className="flex justify-start mb-1">
+                    <div className="max-w-[80%]">
+                      <ToolResultBadge name={msg.toolName!} result={msg.toolResult} />
+                    </div>
+                  </div>
+                )
+              }
+
+              if (msg.role === 'system') {
+                return (
+                  <div key={msg.id} className="flex flex-col items-center py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-px w-12 bg-gray-100" />
+                      <span className="text-[10px] text-gray-300 text-center">{formatTime(msg.timestamp)}</span>
+                      <div className="h-px w-12 bg-gray-100" />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 text-center max-w-sm leading-relaxed">{msg.content}</p>
+                  </div>
+                )
+              }
+
+              return null
+            })}
+
+            {/* Pending approvals */}
+            {showApprovals && pendingApprovals.map(p => (
+              <ApprovalCard
+                key={p.toolUseId}
+                pending={p}
+                onApprove={() => {
+                  const approvals = Object.fromEntries(
+                    pendingApprovals.map(pa => [pa.toolUseId, pa.toolUseId === p.toolUseId])
+                  )
+                  handleApproval(approvals)
+                }}
+                onReject={() => {
+                  const approvals = Object.fromEntries(
+                    pendingApprovals.map(pa => [pa.toolUseId, pa.toolUseId === p.toolUseId ? false : true])
+                  )
+                  handleApproval(approvals)
+                }}
+                disabled={thinking}
+              />
+            ))}
+
+            {thinking && <ThinkingDots />}
+
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input bar */}
+          <div className="flex-shrink-0 border-t border-gray-100 p-3">
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef}
+                value={status === 'idle' && !sessionId ? goalText : inputText}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                disabled={isInputDisabled && !canSendMessage && status !== 'idle'}
+                placeholder={
+                  status === 'idle' && !sessionId
+                    ? 'What should the agent work on?'
+                    : canSendMessage
+                      ? 'Type a message...'
+                      : thinking
+                        ? 'Agent is working...'
+                        : status === 'completed'
+                          ? 'Session complete'
+                          : 'Type a message...'
+                }
+                className="flex-1 resize-none text-sm text-gray-900 placeholder-gray-300 border border-gray-200 px-3 py-2 focus:outline-none focus:border-blue-400 disabled:opacity-50 leading-relaxed"
+                style={{ borderRadius: 4, maxHeight: 120, overflowY: 'auto', minHeight: 38 }}
+                rows={1}
+              />
+              <button
+                onClick={() => {
+                  if (status === 'idle' && !sessionId) {
+                    if (goalText.trim()) startSession(goalText.trim())
+                  } else {
+                    sendMessage(inputText)
+                  }
+                }}
+                disabled={
+                  (status === 'idle' && !sessionId && !goalText.trim()) ||
+                  (status !== 'idle' && !inputText.trim() && !canSendMessage) ||
+                  (thinking)
+                }
+                className="flex-shrink-0 text-xs font-semibold text-white px-3 py-2 transition-opacity hover:opacity-80 disabled:opacity-30 flex items-center gap-1"
+                style={{ backgroundColor: '#0063FF', borderRadius: 4, height: 38 }}
+              >
+                {status === 'idle' && !sessionId ? 'Start' : 'Send'} &rarr;
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-300 mt-1.5">Enter to {status === 'idle' && !sessionId ? 'start' : 'send'} · Shift+Enter for new line</p>
+          </div>
+        </>
+      )}
     </div>
   )
 }

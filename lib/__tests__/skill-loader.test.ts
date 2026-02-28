@@ -36,7 +36,7 @@ describe('loadSkillPrompt', () => {
     const prompt = await loadSkillPrompt('win_back')
     expect(prompt).toContain('Win-Back')
     expect(prompt).toContain('Personal Farewell')
-    expect(prompt).toContain('within 2 hours of cancellation')
+    expect(prompt).toContain('same day as cancellation')
   })
 
   it('loads lead_followup skill', async () => {
@@ -70,6 +70,39 @@ describe('loadSkillPrompt', () => {
   it('loads at_risk_detector using churn-risk skill', async () => {
     const prompt = await loadSkillPrompt('at_risk_detector')
     expect(prompt).toContain('Churn Risk')
+  })
+
+  it('loads renewal skill', async () => {
+    const prompt = await loadSkillPrompt('renewal')
+    expect(prompt).toContain('Membership Renewal')
+    expect(prompt).toContain('expiring_membership')
+  })
+
+  it('loads membership_renewal alias', async () => {
+    const prompt = await loadSkillPrompt('membership_renewal')
+    expect(prompt).toContain('Membership Renewal')
+  })
+
+  it('loads referral skill', async () => {
+    const prompt = await loadSkillPrompt('referral')
+    expect(prompt).toContain('Member Referral')
+    expect(prompt).toContain('referral_request')
+  })
+
+  it('loads member_referral alias', async () => {
+    const prompt = await loadSkillPrompt('member_referral')
+    expect(prompt).toContain('Member Referral')
+  })
+
+  it('loads milestone skill', async () => {
+    const prompt = await loadSkillPrompt('milestone')
+    expect(prompt).toContain('Member Milestone')
+    expect(prompt).toContain('anniversary')
+  })
+
+  it('loads anniversary alias to milestone skill', async () => {
+    const prompt = await loadSkillPrompt('anniversary')
+    expect(prompt).toContain('Member Milestone')
   })
 
   it('returns base-only for unknown task type', async () => {

@@ -13,15 +13,16 @@ export async function POST(req: NextRequest) {
   const system = `You are an expert at making AI-generated gym messages sound like they were written by a real human coach who genuinely cares about their members.
 
 Rules:
+- NEVER use emdashes in the output. Replace any emdash with a comma, period, or new sentence. This is the single most important rule.
 - Remove any phrasing that sounds like it came from a bot or marketing template
-- Keep the same core message and intent — don't change what's being said
-- Use natural, conversational language — like a text from a real person
-- Vary sentence length — mix short punchy sentences with longer ones
+- Keep the same core message and intent, don't change what's being said
+- Use natural, conversational language, like a text from a real person
+- Vary sentence length. Mix short punchy sentences with longer ones
 - Avoid: "I hope this message finds you well", "I wanted to reach out", "I noticed that", "as your coach", hollow affirmations
 - Use contractions naturally (you've, I've, it's, we'd)
 - First name only, never full name
 - 3-5 sentences max unless it needs to be longer for context
-- Return ONLY the rewritten message — no explanation, no quotes, no prefix`
+- Return ONLY the rewritten message, no explanation, no quotes, no prefix`
 
   const prompt = `Member: ${memberName}
 ${context ? `Context: ${context}` : ''}

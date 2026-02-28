@@ -183,10 +183,9 @@ function buildChurnRiskRec(a: SnapshotAnalysis): SetupRecommendation {
     headline = `${droppingCount} member${droppingCount !== 1 ? 's' : ''} with declining attendance`
   }
 
-  const memberWord = a.atRiskMembers.length === 1 ? 'member' : 'members'
   const reasoning = noShowCount > 0
-    ? `${noShowCount} ${noShowCount === 1 ? 'member has' : 'members have'} stopped showing up at the gym — and they haven't cancelled yet, which means you still have time to get them back. A personal check-in from the coach catches this before it becomes a cancellation.`
-    : `${a.atRiskMembers.length} ${memberWord} are slipping. Gym attendance is down, and every week that passes makes it less likely they come back. Catch them with a personal message before they mentally check out.`
+    ? `${noShowCount} ${noShowCount === 1 ? 'member has' : 'members have'} gone dark but haven't cancelled — you still have a window. A personal check-in catches this before it becomes a cancellation.`
+    : `${a.atRiskMembers.length} ${a.atRiskMembers.length === 1 ? 'member is' : 'members are'} slipping — attendance is dropping and every week makes it harder to get them back.`
 
   return {
     agentType: 'at_risk_detector',
@@ -209,7 +208,7 @@ function buildPaymentRecoveryRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Payment Recovery',
     description: 'Detect failed membership payments and send friendly recovery messages before involuntary churn happens.',
     headline: `${a.paymentIssues.length} failed membership payment${a.paymentIssues.length !== 1 ? 's' : ''} need attention`,
-    reasoning: `${a.paymentIssues.length === 1 ? 'A membership payment' : `${a.paymentIssues.length} membership payments`} just failed — these are billing glitches, not actual churn. Most of these gym members want to stay. Catch it fast with a friendly heads-up and they'll fix it.`,
+    reasoning: `${a.paymentIssues.length} failed payment${a.paymentIssues.length !== 1 ? 's' : ''} — billing glitches, not real churn. A quick friendly heads-up and most members fix it same day.`,
     stats: [
       { label: 'Failed Payments', value: a.paymentIssues.length, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
@@ -224,7 +223,7 @@ function buildWinBackRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Win-Back Agent',
     description: 'Reach out to recently cancelled members with a personal message to bring them back.',
     headline: `${a.recentlyCancelled.length} recently cancelled member${a.recentlyCancelled.length !== 1 ? 's' : ''} may be recoverable`,
-    reasoning: `${a.recentlyCancelled.length === 1 ? 'Someone' : `${a.recentlyCancelled.length} people`} just cancelled — but you have a 30-day window to bring ${a.recentlyCancelled.length === 1 ? 'them' : 'some of them'} back. A personal note from the owner works. A generic win-back email doesn't.`,
+    reasoning: `${a.recentlyCancelled.length} recent cancellation${a.recentlyCancelled.length !== 1 ? 's' : ''} — but there's a 30-day window. A personal note from the owner works where generic win-back emails don't.`,
     stats: [
       { label: 'Recent Cancellations', value: a.recentlyCancelled.length, emphasis: true },
       { label: 'Total Cancelled', value: a.cancelledMembers.length },
@@ -240,7 +239,7 @@ function buildOnboardingRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Onboarding Coach',
     description: 'Check in on new gym members during their first 30 days to make sure they\'re settling in and building a workout routine.',
     headline: `${a.newMembers.length} new member${a.newMembers.length !== 1 ? 's' : ''} in their first 30 days`,
-    reasoning: `You have ${a.newMembers.length} new ${a.newMembers.length === 1 ? 'member' : 'members'} right now who are still deciding if the gym is for them. Members who don't build a workout routine in the first 30 days cancel 3x more often — a quick check-in at the right moment makes all the difference.`,
+    reasoning: `${a.newMembers.length} new member${a.newMembers.length !== 1 ? 's' : ''} still deciding if the gym is for them. Members who don't build a habit in 30 days cancel 3x more often.`,
     stats: [
       { label: 'New Members', value: a.newMembers.length, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
@@ -273,7 +272,7 @@ function buildLeadReactivationRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Lead Re-Activation',
     description: 'Re-engage old leads who went cold — a personal message from the owner can bring ghost leads back into the funnel.',
     headline: `${staleCount} ghost lead${staleCount !== 1 ? 's' : ''} sitting in your system`,
-    reasoning: `You have ${staleCount} lead${staleCount !== 1 ? 's' : ''} that never converted — ${ageNote}. These aren't dead. They raised their hand once, and life got in the way. A personal, non-salesy check-in from the owner brings 10-15% of ghost leads back into the funnel.`,
+    reasoning: `${staleCount} lead${staleCount !== 1 ? 's' : ''} that never converted — ${ageNote}. They raised their hand once. A personal check-in brings 10-15% of ghost leads back.`,
     stats: [
       { label: 'Ghost Leads', value: staleCount, emphasis: true },
       { label: 'Avg Age', value: `${avgAge}d`, emphasis: avgAge > 90 },
@@ -290,7 +289,7 @@ function buildLeadFollowupRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Lead Follow-Up',
     description: 'Follow up with leads who haven\'t converted yet — a timely personal message makes all the difference.',
     headline: `${a.leads.length} lead${a.leads.length !== 1 ? 's' : ''} waiting for follow-up`,
-    reasoning: `You have ${a.leads.length} ${a.leads.length === 1 ? 'lead' : 'leads'} sitting in your system who haven't converted yet. ABC — always be closing. Leads who get a personal follow-up same day convert at 2x the rate. Every day you wait, they're cooling off.`,
+    reasoning: `${a.leads.length} lead${a.leads.length !== 1 ? 's' : ''} waiting to hear from you. Same-day personal follow-up converts at 2x the rate — every day you wait, they cool off.`,
     stats: [
       { label: 'Open Leads', value: a.leads.length, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
@@ -305,7 +304,7 @@ function buildFallbackRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Retention Monitor',
     description: 'Continuously monitor gym member attendance and flag anyone who starts skipping workouts before they cancel.',
     headline: `${a.activeMembers.length} active member${a.activeMembers.length !== 1 ? 's' : ''} to watch over`,
-    reasoning: `Gym members quit quietly — there's no notice, just an empty spot on the floor. A daily scan catches attendance drops before the member has mentally checked out.`,
+    reasoning: `Members quit quietly — no notice, just an empty spot. A daily scan catches attendance drops before they mentally check out.`,
     stats: [
       { label: 'Active Members', value: a.activeMembers.length, emphasis: true },
       { label: 'Total Members', value: a.totalMembers },

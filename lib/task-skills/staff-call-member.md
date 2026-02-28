@@ -1,16 +1,16 @@
 ---
 id: staff-call-member
-applies_when: "a member situation requires a personal phone call from staff — escalated issues, no-shows, or high-touch moments"
+applies_when: "a member situation requires a personal phone call from staff, escalated issues, no-shows, or high-touch moments"
 domain: retention
 triggers: ["no_show", "escalation_needs_call", "high_value_member"]
 ---
 
-# Staff Call Member — Task Skill
+# Staff Call Member - Task Skill
 
 ## Role
 
 This is a staff task, not an AI communication task. The system creates this
-task when a member situation needs a real phone call from a real human —
+task when a member situation needs a real phone call from a real human:
 the gym owner, a manager, or a coach.
 
 ## Goal
@@ -42,7 +42,7 @@ When creating this task, provide:
 
 ## Talking Points Guidelines
 
-- Keep them brief — bullet points, not paragraphs
+- Keep them brief. Bullet points, not paragraphs
 - Focus on the goal of the call (check in? resolve issue? welcome back?)
 - Note any sensitive topics to be aware of (recent complaint, injury, financial difficulty)
 - Note what NOT to mention (other members, internal processes, AI system)
@@ -64,8 +64,8 @@ When the staff member marks the task as done, capture:
 
 ## Common Mistakes to Avoid
 
-- Writing a full script instead of talking points — staff know how to talk to members
+- Writing a full script instead of talking points. Staff know how to talk to members
 - Creating call tasks for things that should be an email
-- Not including the WHY — "call this member" with no context is useless
-- Creating too many call tasks at once — staff have limited phone time
-- Not capturing the outcome — the call is only half the task, the record matters
+- Not including the WHY. "Call this member" with no context is useless
+- Creating too many call tasks at once. Staff have limited phone time
+- Not capturing the outcome. The call is only half the task, the record matters

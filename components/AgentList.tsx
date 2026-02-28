@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 interface Agent {
   id: string
@@ -14,6 +14,7 @@ interface Agent {
   last_run_at?: string
   run_count?: number
   system_prompt?: string | null
+  created_at?: string
 }
 
 interface AgentListProps {
@@ -21,6 +22,7 @@ interface AgentListProps {
   isDemo?: boolean
   onSelect?: (agent: Agent) => void
   onToggle?: (skillType: string, isActive: boolean) => void
+  onDelete?: (agentId: string) => void
 }
 
 function timeAgo(dateStr?: string): string {
@@ -35,6 +37,12 @@ function timeAgo(dateStr?: string): string {
   return `${days}d ago`
 }
 
+function shortDate(dateStr?: string): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 function triggerLabel(agent: Agent): string {
   if (agent.trigger_mode === 'event') {
     return 'On event'
@@ -45,8 +53,85 @@ function triggerLabel(agent: Agent): string {
   return agent.cron_schedule || 'Scheduled'
 }
 
-export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentListProps) {
+/**
+ * Number duplicate agent names so they're distinguishable.
+ * "Lead Re-Activation" x3 → "Lead Re-Activation", "Lead Re-Activation #2", "Lead Re-Activation #3"
+ * Ordered by created_at ascending (oldest = no suffix).
+ */
+function numberAgentNames(agents: Agent[]): Map<string, string> {
+  const nameCounts = new Map<string, number>()
+  for (const a of agents) {
+    nameCounts.set(a.name, (nameCounts.get(a.name) ?? 0) + 1)
+  }
+
+  const nameIndexes = new Map<string, number>()
+  const result = new Map<string, string>()
+
+  // Process in created_at order (oldest first) so #1 is implicit (no suffix)
+  const sorted = [...agents].sort((a, b) =>
+    (a.created_at ?? '').localeCompare(b.created_at ?? '')
+  )
+
+  for (const a of sorted) {
+    const count = nameCounts.get(a.name) ?? 1
+    if (count <= 1) {
+      result.set(a.id, a.name)
+    } else {
+      const idx = (nameIndexes.get(a.name) ?? 0) + 1
+      nameIndexes.set(a.name, idx)
+      result.set(a.id, idx === 1 ? a.name : `${a.name} #${idx}`)
+    }
+  }
+
+  return result
+}
+
+function ContextMenu({
+  agent,
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  agent: Agent
+  onEdit: () => void
+  onDelete: () => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-0 top-6 z-10 w-32 bg-white border border-gray-200 py-1"
+      style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+    >
+      <button
+        onClick={() => { onEdit(); onClose() }}
+        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+      >
+        Edit
+      </button>
+      <button
+        onClick={() => { onDelete(); onClose() }}
+        className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 transition-colors"
+      >
+        Delete
+      </button>
+    </div>
+  )
+}
+
+export default function AgentList({ agents, isDemo, onSelect, onToggle, onDelete }: AgentListProps) {
   const [toggling, setToggling] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState<string | null>(null)
 
   const handleToggle = async (agent: Agent) => {
     if (isDemo || toggling) return
@@ -64,6 +149,19 @@ export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentL
     setToggling(null)
   }
 
+  const handleDelete = async (agent: Agent) => {
+    if (isDemo) return
+    if (!confirm(`Delete "${agent.name}"? This cannot be undone.`)) return
+    try {
+      await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
+      onDelete?.(agent.id)
+    } catch {
+      // Silent fail
+    }
+  }
+
+  const displayNames = numberAgentNames(agents)
+
   if (agents.length === 0) {
     return (
       <div className="p-6 text-center">
@@ -78,12 +176,12 @@ export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentL
         const active = toggling === agent.skill_type ? !agent.is_active : agent.is_active
 
         return (
-          <div key={agent.id} className="px-5 py-4 flex items-start gap-4">
+          <div key={agent.id} className="px-5 py-3 flex items-center gap-3">
             {/* Toggle */}
             <button
               onClick={() => handleToggle(agent)}
               disabled={isDemo || toggling === agent.skill_type}
-              className="mt-0.5 flex-shrink-0 relative w-9 h-5 transition-colors"
+              className="flex-shrink-0 relative w-9 h-5 transition-colors"
               style={{
                 backgroundColor: active ? '#0063FF' : '#D1D5DB',
               }}
@@ -97,14 +195,14 @@ export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentL
               />
             </button>
 
-            {/* Content */}
+            {/* Content — single row with inline metadata */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-900 truncate">
-                  {agent.name}
+                  {displayNames.get(agent.id) ?? agent.name}
                 </span>
                 <span
-                  className="text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5"
+                  className="flex-shrink-0 text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5"
                   style={{
                     backgroundColor: active ? 'rgba(0, 99, 255, 0.08)' : '#F3F4F6',
                     color: active ? '#0063FF' : '#9CA3AF',
@@ -112,42 +210,51 @@ export default function AgentList({ agents, isDemo, onSelect, onToggle }: AgentL
                 >
                   {triggerLabel(agent)}
                 </span>
+                {agent.created_at && (
+                  <span className="flex-shrink-0 text-[10px] text-gray-400">
+                    {shortDate(agent.created_at)}
+                  </span>
+                )}
               </div>
               {agent.description && (
-                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                <p className="text-xs text-gray-500 mt-0.5 truncate">
                   {agent.description}
-                </p>
-              )}
-              {agent.system_prompt && (
-                <p className="text-xs text-gray-400 mt-1 italic truncate">
-                  Custom: &quot;{agent.system_prompt}&quot;
                 </p>
               )}
             </div>
 
-            {/* Stats + Edit */}
-            <div className="flex-shrink-0 text-right flex flex-col items-end gap-1">
+            {/* Stats */}
+            <div className="flex-shrink-0 flex items-center gap-3">
               {agent.last_run_at ? (
-                <>
-                  <p className="text-xs text-gray-500">{timeAgo(agent.last_run_at)}</p>
-                  <p className="text-[10px] text-gray-400">
-                    {agent.run_count ?? 0} runs
-                  </p>
-                </>
+                <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                  {timeAgo(agent.last_run_at)} · {agent.run_count ?? 0} runs
+                </span>
               ) : (
-                <p className="text-xs text-gray-400">—</p>
+                <span className="text-[10px] text-gray-400">No runs</span>
               )}
-              {onSelect && (
+
+              {/* Context menu trigger */}
+              <div className="relative">
                 <button
-                  onClick={() => onSelect(agent)}
-                  className="text-[10px] font-semibold tracking-wide uppercase transition-colors mt-1"
-                  style={{ color: '#9CA3AF' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#0063FF')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#9CA3AF')}
+                  onClick={() => setMenuOpen(menuOpen === agent.id ? null : agent.id)}
+                  className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+                  aria-label="Agent options"
                 >
-                  Edit
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <circle cx="8" cy="3" r="1.5" />
+                    <circle cx="8" cy="8" r="1.5" />
+                    <circle cx="8" cy="13" r="1.5" />
+                  </svg>
                 </button>
-              )}
+                {menuOpen === agent.id && (
+                  <ContextMenu
+                    agent={agent}
+                    onEdit={() => onSelect?.(agent)}
+                    onDelete={() => handleDelete(agent)}
+                    onClose={() => setMenuOpen(null)}
+                  />
+                )}
+              </div>
             </div>
           </div>
         )

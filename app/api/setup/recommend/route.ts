@@ -9,13 +9,19 @@ import { createPushPressClient } from '@/lib/pushpress'
 import { recommend } from '@/lib/setup-recommend'
 import { writeStatsFromSnapshot } from '@/lib/sync-business-stats'
 import { writeScheduleFromSnapshot } from '@/lib/sync-schedule'
-import type { AccountSnapshot, MemberData, PaymentEvent } from '@/lib/agents/GMAgent'
+import type { AccountSnapshot, MemberData } from '@/lib/agents/GMAgent'
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const SNAPSHOT_CACHE_CATEGORY = 'setup_snapshot_cache'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // Allow ?force=true to bypass cache
+  const forceRefresh = new URL(req.url).searchParams.get('force') === 'true'
 
   try {
     const account = await getAccountForUser(session.id)
@@ -34,13 +40,57 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No PushPress connection found — reconnect your gym\'s PushPress account' }, { status: 400 })
     }
 
-    const apiKey = decrypt(accountRow.pushpress_api_key)
-    const companyId = accountRow.pushpress_company_id || ''
     const accountName = accountRow.account_name || 'Your Gym'
 
-    console.log('[setup/recommend] Fetching data for', accountName)
+    // ── Check for recent knowledge pull ──────────────────────────────────────
+    // If business_stats memory was updated < 24h ago, skip the expensive
+    // PushPress data fetch and build the recommendation from cached snapshot.
 
-    // Build a quick snapshot using the v3 API (which actually works in production)
+    if (!forceRefresh) {
+      const { data: recentStats } = await supabaseAdmin
+        .from('memories')
+        .select('updated_at')
+        .eq('account_id', accountId)
+        .eq('category', 'business_stats')
+        .eq('source', 'system')
+        .eq('active', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (recentStats?.updated_at) {
+        const age = Date.now() - new Date(recentStats.updated_at).getTime()
+        if (age < CACHE_TTL_MS) {
+          console.log(`[setup/recommend] Using cached data (${Math.round(age / 60_000)}m old) for ${accountName}`)
+
+          // We still need the snapshot to generate a recommendation, but we can
+          // use the member_count from accounts table as a fast approximation
+          // and build a lightweight snapshot from existing data.
+          const cachedSnapshot = await buildCachedSnapshot(accountId, accountName)
+          if (cachedSnapshot) {
+            const recommendation = recommend(cachedSnapshot)
+            return NextResponse.json({
+              recommendation,
+              snapshotSummary: {
+                totalMembers: cachedSnapshot.members.length,
+                accountName,
+              },
+              cached: true,
+              lastSyncedAt: recentStats.updated_at,
+            })
+          }
+          // If cached snapshot failed, fall through to fresh fetch
+        }
+      }
+    }
+
+    // ── Fresh data pull from PushPress ────────────────────────────────────────
+
+    const apiKey = decrypt(accountRow.pushpress_api_key)
+    const companyId = accountRow.pushpress_company_id || ''
+
+    console.log('[setup/recommend] Fetching fresh data for', accountName)
+
     const snapshot = await buildQuickSnapshot(apiKey, companyId, accountId, accountName)
 
     console.log('[setup/recommend] Snapshot:', snapshot.members.length, 'members')
@@ -49,11 +99,13 @@ export async function POST(req: NextRequest) {
 
     console.log('[setup/recommend] Recommendation:', recommendation.agentType, '-', recommendation.name)
 
-    // Write business stats + schedule memories with accurate data from paginated fetch
+    // Write business stats + schedule memories with accurate data from paginated fetch.
+    // Also cache the compact snapshot so the next visit can skip the PushPress fetch.
     const avgPrice = accountRow.avg_membership_price ?? 150
     await Promise.all([
       writeStatsFromSnapshot(accountId, snapshot, avgPrice),
       writeScheduleFromSnapshot(accountId, snapshot),
+      cacheSnapshotForSetup(accountId, snapshot),
     ])
 
     return NextResponse.json({
@@ -62,6 +114,8 @@ export async function POST(req: NextRequest) {
         totalMembers: snapshot.members.length,
         accountName,
       },
+      cached: false,
+      lastSyncedAt: new Date().toISOString(),
     })
   } catch (err: any) {
     console.error('[setup/recommend] Error:', err.message)
@@ -69,6 +123,101 @@ export async function POST(req: NextRequest) {
       { error: err.message || 'Failed to analyze your business' },
       { status: 500 },
     )
+  }
+}
+
+/**
+ * Save a compact snapshot to the memories table so the next setup visit
+ * can skip the PushPress API call. Importance=1 keeps it below the
+ * minImportance=3 threshold used for AI prompt injection.
+ */
+async function cacheSnapshotForSetup(accountId: string, snapshot: AccountSnapshot): Promise<void> {
+  const compact = {
+    members: snapshot.members.map(m => ({
+      id: m.id,
+      st: m.status,
+      ms: m.memberSince,
+      r: m.recentCheckinsCount,
+      p: m.previousCheckinsCount,
+    })),
+    pe: snapshot.paymentEvents ?? [],
+  }
+
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from('memories')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('category', SNAPSHOT_CACHE_CATEGORY)
+      .limit(1)
+      .single()
+
+    if (existing) {
+      await supabaseAdmin
+        .from('memories')
+        .update({ content: JSON.stringify(compact), updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+    } else {
+      await supabaseAdmin.from('memories').insert({
+        account_id: accountId,
+        category: SNAPSHOT_CACHE_CATEGORY,
+        content: JSON.stringify(compact),
+        importance: 1,
+        scope: 'global',
+        source: 'system',
+      })
+    }
+  } catch (err: any) {
+    // Non-critical — fresh fetch still worked; just means next visit won't be cached
+    console.warn('[setup/recommend] Failed to cache snapshot:', err.message)
+  }
+}
+
+/**
+ * Read the compact snapshot saved by cacheSnapshotForSetup.
+ * Returns null if no cache exists or if parsing fails.
+ */
+async function buildCachedSnapshot(
+  accountId: string,
+  accountName: string,
+): Promise<AccountSnapshot | null> {
+  try {
+    const { data: cached } = await supabaseAdmin
+      .from('memories')
+      .select('content')
+      .eq('account_id', accountId)
+      .eq('category', SNAPSHOT_CACHE_CATEGORY)
+      .limit(1)
+      .single()
+
+    if (!cached?.content) return null
+
+    const compact = JSON.parse(cached.content)
+    if (!Array.isArray(compact.members)) return null
+
+    const members: MemberData[] = compact.members.map((m: any) => ({
+      id: m.id ?? '',
+      name: '',
+      email: '',
+      status: m.st ?? 'active',
+      membershipType: '',
+      memberSince: m.ms ?? '',
+      recentCheckinsCount: m.r ?? 0,
+      previousCheckinsCount: m.p ?? 0,
+      monthlyRevenue: 0,
+    }))
+
+    return {
+      accountId,
+      accountName,
+      members,
+      recentCheckins: [],
+      recentLeads: [],
+      paymentEvents: compact.pe ?? [],
+      capturedAt: new Date().toISOString(),
+    }
+  } catch {
+    return null
   }
 }
 

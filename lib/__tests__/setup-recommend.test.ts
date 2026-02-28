@@ -193,9 +193,9 @@ describe('recommend', () => {
       ],
     })
     const rec = recommend(snapshot, NOW)
-    expect(rec.reasoning).toContain('stopped showing up')
-    expect(rec.reasoning).toContain('cancelled yet')
-    expect(rec.reasoning).toContain('gym') // gym-specific language
+    expect(rec.reasoning).toContain('gone dark')
+    expect(rec.reasoning).toContain('cancelled')
+    expect(rec.reasoning).toContain('check-in')
   })
 
   it('recommends payment_recovery when no churn but payment issues (priority 2)', () => {
@@ -340,7 +340,7 @@ describe('recommend', () => {
     expect(rec.agentType).toBe('at_risk_detector')
     expect(rec.name).toBe('Retention Monitor')
     expect(rec.headline).toContain('active member')
-    expect(rec.reasoning).toContain('Gym members') // gym-specific
+    expect(rec.reasoning).toContain('Members quit quietly')
   })
 
   it('returns fallback for empty snapshot', () => {
@@ -392,8 +392,8 @@ describe('recommend', () => {
       ),
     })
     const rec = recommend(snapshot, NOW)
-    expect(rec.reasoning).toContain('20 members have stopped showing up')
-    expect(rec.reasoning).toContain('gym') // gym-specific language
+    expect(rec.reasoning).toContain('20 members have gone dark')
+    expect(rec.reasoning).toContain('check-in')
     expect(rec.stats.find(s => s.label === 'At Risk')?.value).toBe(20)
   })
 

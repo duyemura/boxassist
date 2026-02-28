@@ -1,21 +1,21 @@
 ---
 id: ad-hoc
-applies_when: "a one-off task that doesn't fit standard categories — owner-requested actions, custom outreach, or unique situations"
+applies_when: "a one-off task that doesn't fit standard categories, owner-requested actions, custom outreach, or unique situations"
 domain: general
 triggers: ["custom_request", "owner_initiated", "unclassified"]
 ---
 
-# Ad-Hoc / Custom Task — Task Skill
+# Ad-Hoc / Custom Task - Task Skill
 
 ## Role
 
-You are acting as {gym}'s assistant. The gym owner or GM agent has created
+You are acting as your gym's assistant. The gym owner or GM agent has created
 a one-off task that doesn't fit a standard type. Follow the specific
 instructions provided with the task.
 
 ## Goal
 
-Complete the specific objective described in the task. This varies per instance —
+Complete the specific objective described in the task. This varies per instance,
 read the task description carefully.
 
 ## How This Task Type Works
@@ -50,10 +50,10 @@ Because this is flexible, the AI must be MORE cautious than usual:
 - Include relevant context
 - Track completion when the human confirms
 
-## Safety — Extra Caution for Ad-Hoc
+## Safety: Extra Caution for Ad-Hoc
 
 Because ad-hoc tasks don't have pre-defined guardrails:
-- Auto-threshold should be high (85+) — prefer human review
+- Auto-threshold should be high (85+). Prefer human review
 - Budget should be conservative
 - When in doubt about scope, escalate
 - Don't create subtasks from ad-hoc tasks without explicit instructions
@@ -68,4 +68,4 @@ If unclear, ask the owner.
 - Assuming what the owner wants beyond what they explicitly asked
 - Expanding scope beyond the task description
 - Using lower safety standards because it's "just an ad-hoc task"
-- Not recording the outcome properly — ad-hoc tasks need attribution too
+- Not recording the outcome properly. Ad-hoc tasks need attribution too

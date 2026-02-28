@@ -2,6 +2,22 @@
 
 import { useState, useEffect } from 'react'
 
+// ─── Thread types ─────────────────────────────────────────────────────────────
+
+interface ConversationMessage {
+  id: string
+  role: 'assistant' | 'user' | string
+  content: string
+  agent_name?: string | null
+  evaluation?: {
+    reasoning?: string
+    action?: string
+    outcomeScore?: number
+    outcome?: string
+  } | null
+  created_at: string
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ActionSlidePanelProps {
@@ -88,6 +104,21 @@ function getInsightBadge(
   return { label: 'Insight', color: '#6B7280', bg: 'rgba(107,114,128,0.08)' }
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtTime(iso: string): string {
+  const d = new Date(iso)
+  const diff = Date.now() - d.getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 // ─── Copy button ──────────────────────────────────────────────────────────────
 
 function CopyButton({ text }: { text: string }) {
@@ -129,12 +160,20 @@ export default function ActionSlidePanel({
   const [editedSubject, setEditedSubject] = useState(action?.content?.messageSubject ?? '')
   const isEdited = editedMessage !== originalDraft
 
-  // Reset edited state when a different action is selected
+  // Thread history
+  const [thread, setThread] = useState<ConversationMessage[]>([])
+
+  // Reset edited state and fetch thread when a different action is selected
   const actionId = action?.id
   useEffect(() => {
     if (actionId) {
       setEditedMessage(action?.content?.draftMessage ?? action?.content?.draftedMessage ?? '')
       setEditedSubject(action?.content?.messageSubject ?? '')
+      setThread([])
+      fetch(`/api/conversations/by-task?taskId=${actionId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.messages?.length) setThread(data.messages) })
+        .catch(() => {})
     }
   }, [actionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -199,6 +238,78 @@ export default function ActionSlidePanel({
 
         {/* Divider */}
         <div className="border-t border-gray-100" />
+
+        {/* Conversation history */}
+        {thread.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-3">
+              Conversation
+            </p>
+            <div className="space-y-3">
+              {thread.map(msg => (
+                <div key={msg.id}>
+                  {msg.role === 'assistant' ? (
+                    /* Outbound — sent by the agent */
+                    <div className="flex items-start gap-2">
+                      <div
+                        className="w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: '#0063FF' }}
+                      >
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-xs leading-relaxed whitespace-pre-wrap px-3 py-2"
+                          style={{ backgroundColor: '#EEF4FF', color: '#1E3A8A' }}
+                        >
+                          {msg.content}
+                        </p>
+                        <p className="text-[10px] text-gray-300 mt-1">{fmtTime(msg.created_at)}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Inbound — member reply */
+                    <div className="flex items-start gap-2">
+                      <div
+                        className="w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: '#F3F4F6' }}
+                      >
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-xs leading-relaxed whitespace-pre-wrap px-3 py-2"
+                          style={{ backgroundColor: '#F9FAFB', color: '#374151', border: '1px solid #E5E7EB' }}
+                        >
+                          {msg.content}
+                        </p>
+                        <p className="text-[10px] text-gray-300 mt-1">{fmtTime(msg.created_at)}</p>
+                        {/* AI evaluation after member reply */}
+                        {msg.evaluation?.reasoning && (
+                          <div
+                            className="mt-1.5 px-2.5 py-2 text-[10px] leading-relaxed"
+                            style={{ backgroundColor: '#FAFAFA', borderLeft: '2px solid #E5E7EB', color: '#6B7280' }}
+                          >
+                            <span className="font-semibold uppercase tracking-wide" style={{ color: '#9CA3AF' }}>
+                              AI · {msg.evaluation.action ?? 'evaluated'}
+                              {msg.evaluation.outcomeScore !== undefined ? ` · ${msg.evaluation.outcomeScore}` : ''}
+                            </span>
+                            <span className="ml-1">{msg.evaluation.reasoning}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-gray-100 mt-4" />
+          </div>
+        )}
 
         {/* Message — editable */}
         {originalDraft && (
