@@ -238,7 +238,7 @@ async function buildQuickSnapshot(
   const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
 
   // Step 1: Fetch all customers (paginated — v3 caps at 100 per page)
-  let customers: any[] = []
+  const customers: any[] = []
   try {
     let page = 1
     const MAX_PAGES = 5

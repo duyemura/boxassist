@@ -111,14 +111,14 @@ describe('action tools', () => {
     it('requires approval in semi_auto mode', () => {
       const tool = findTool('send_email')
       const ctx = makeCtx({ autonomyMode: 'semi_auto' })
-      const requiresFn = tool.requiresApproval as Function
+      const requiresFn = tool.requiresApproval as (...args: any[]) => any
       expect(requiresFn({}, ctx)).toBe(true)
     })
 
     it('does NOT require approval in full_auto mode', () => {
       const tool = findTool('send_email')
       const ctx = makeCtx({ autonomyMode: 'full_auto' })
-      const requiresFn = tool.requiresApproval as Function
+      const requiresFn = tool.requiresApproval as (...args: any[]) => any
       expect(requiresFn({}, ctx)).toBe(false)
     })
 
@@ -284,13 +284,13 @@ describe('action tools', () => {
 
     it('requires approval in semi_auto mode', () => {
       const tool = findTool('request_input')
-      const requiresFn = tool.requiresApproval as Function
+      const requiresFn = tool.requiresApproval as (...args: any[]) => any
       expect(requiresFn({}, makeCtx({ autonomyMode: 'semi_auto' }))).toBe(true)
     })
 
     it('does NOT require approval in full_auto mode', () => {
       const tool = findTool('request_input')
-      const requiresFn = tool.requiresApproval as Function
+      const requiresFn = tool.requiresApproval as (...args: any[]) => any
       expect(requiresFn({}, makeCtx({ autonomyMode: 'full_auto' }))).toBe(false)
     })
   })

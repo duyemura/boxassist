@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     roiMultiplier: 421,
   }
 
-  let actions = [
+  const actions = [
     { memberName: 'Sarah M.', playbook: 'At-Risk Monitor', outcome: 'Returned after message', value: '$130', date: '' },
     { memberName: 'James T.', playbook: 'Renewal At-Risk', outcome: 'Renewed membership', value: '$180', date: '' },
     { memberName: 'Dana K.', playbook: 'Lapsed Win-Back', outcome: 'Rejoined gym', value: '$130', date: '' },

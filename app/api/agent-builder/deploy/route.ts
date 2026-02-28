@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     // Create agent record
     // For real accounts: if an agent with the same skill_type already exists,
     // update it instead of creating a duplicate
-    let skillType = config.skill_type
+    const skillType = config.skill_type
     if (!isDemo && accountId) {
       const { data: existing } = await supabaseAdmin
         .from('agents')

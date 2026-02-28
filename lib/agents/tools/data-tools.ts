@@ -171,7 +171,7 @@ const getMembers: AgentTool = {
       })
 
       // Filter
-      let filtered = members.filter(m => {
+      const filtered = members.filter(m => {
         if (statusFilter !== 'all' && m.status !== statusFilter) return false
         if (daysAbsentMin > 0 && (m.daysSinceVisit === null || m.daysSinceVisit < daysAbsentMin)) return false
         // Exclude already-processed members from this session
