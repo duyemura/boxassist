@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import ReviewQueue from '@/components/ReviewQueue'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
@@ -201,25 +201,26 @@ function DashboardContent() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  // Sync URL → section state (handles reload, browser back/forward, OAuth callback)
+  // Sync URL path → section state (handles reload, browser back/forward)
   const VALID_SECTIONS: NavSection[] = ['gm', 'agents', 'memories', 'skills', 'improvements', 'integrations', 'settings']
+  const params = useParams()
+  const pathSection = Array.isArray(params?.section) ? params.section[0] : (params?.section as string | undefined)
+
   useEffect(() => {
     if (isDemo) { setActiveSection('gm'); return }
-    const section = searchParams.get('section') as NavSection | null
-    if (section && VALID_SECTIONS.includes(section)) {
-      setActiveSection(section)
-    } else if (!section) {
+    if (pathSection && VALID_SECTIONS.includes(pathSection as NavSection)) {
+      setActiveSection(pathSection as NavSection)
+    } else {
       setActiveSection('gm')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, isDemo])
+  }, [pathSection, isDemo])
 
-  // Navigate to a section — updates both state and URL so history + reload work
+  // Navigate to a section — pretty path URL so history + reload work
   const navigate = (section: NavSection) => {
     setActiveSection(section)
     if (!isDemo) {
-      const url = section === 'gm' ? '/dashboard' : `/dashboard?section=${section}`
-      router.push(url)
+      router.push(section === 'gm' ? '/dashboard' : `/dashboard/${section}`)
     }
   }
 

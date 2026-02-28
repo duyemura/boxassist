@@ -252,16 +252,14 @@ export default function IntegrationsPanel() {
 
     if (connectedId) {
       setFlash({ type: 'success', message: `${connectedId} connected successfully.` })
-      // Clean up URL
+      // Clean query params, keep the path (/dashboard/integrations)
       const url = new URL(window.location.href)
       url.searchParams.delete('connected')
-      url.searchParams.delete('section')
       window.history.replaceState({}, '', url.toString())
     } else if (errorMsg) {
       setFlash({ type: 'error', message: decodeURIComponent(errorMsg) })
       const url = new URL(window.location.href)
       url.searchParams.delete('error')
-      url.searchParams.delete('section')
       window.history.replaceState({}, '', url.toString())
     }
   }, [loadConnected])

@@ -31,12 +31,12 @@ export async function GET(req: NextRequest) {
   // Failure path
   if (status === 'failed' || status === 'error') {
     return NextResponse.redirect(
-      `${origin}/dashboard?section=integrations&error=${encodeURIComponent('Connection failed. Please try again.')}`,
+      `${origin}/dashboard/integrations?error=${encodeURIComponent('Connection failed. Please try again.')}`,
     )
   }
 
   if (!accountId || !integrationId) {
-    return NextResponse.redirect(`${origin}/dashboard?section=integrations`)
+    return NextResponse.redirect(`${origin}/dashboard/integrations`)
   }
 
   try {
@@ -58,12 +58,12 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.redirect(
-      `${origin}/dashboard?section=integrations&connected=${encodeURIComponent(integrationId)}`,
+      `${origin}/dashboard/integrations?connected=${encodeURIComponent(integrationId)}`,
     )
   } catch (err: any) {
     console.error('Integration callback error:', err)
     return NextResponse.redirect(
-      `${origin}/dashboard?section=integrations&error=${encodeURIComponent('Failed to save connection.')}`,
+      `${origin}/dashboard/integrations?error=${encodeURIComponent('Failed to save connection.')}`,
     )
   }
 }
