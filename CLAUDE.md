@@ -78,6 +78,51 @@ No step in this chain uses hardcoded scoring formulas, task type enums, or domai
 
 - **`docs/AI-NATIVE-ARCHITECTURE.md`** — Full design doc with examples, migration roadmap, new code checklist
 - **`docs/SELF_IMPROVING_SYSTEM.md`** — How the system learns from outcomes and gets smarter per business
+- **`docs/AGENT-ROLES.md`** — Role-based agent architecture (read before building any new agent)
+
+---
+
+## Role-Based Agent Architecture — Next Direction
+
+The system is evolving from task-based agents to **role-based agents**. Understand this before building anything agent-related.
+
+### The Model
+
+Agents are deployed as **roles** — like hiring staff — not as task runners. Each role has:
+- A natural language job description (`lib/roles/<role>.md`)
+- Defined responsibilities and authority limits
+- A clear escalation path
+- Channel ownership
+
+Current roles:
+- **GM Agent** — strategic oversight, exception handling, owner-facing conversation, orchestration
+- **Front Desk Agent** *(in design)* — all member/lead communication across every channel (email, SMS, WhatsApp, Instagram, voice, chat)
+
+Planned roles: Sales Agent, Billing Agent, Coach Agent.
+
+### The Org Chart
+```
+Owner
+  └── GM Agent
+        └── Front Desk Agent  ← handles ALL inbound/outbound comms
+        └── [Sales Agent]      ← future
+        └── [Billing Agent]    ← future
+```
+
+### Role Files
+Role definitions live in `lib/roles/` — Markdown with YAML front-matter, same pattern as skill files. A role file IS the agent's identity for a session. Skill files (`lib/task-skills/`) are still used, but situationally on top of the role identity.
+
+### The Channel Model
+All communication channels (email, SMS, WhatsApp, Instagram, voice) funnel into a unified `conversations` table. Front Desk thinks in **conversations**, not channels. Channel is delivery metadata.
+
+### What This Means When Writing Code
+- **Building a new agent capability?** → Think about which role owns it, not which task type handles it
+- **Adding a new communication channel?** → It routes to `conversations`, not to a one-off handler
+- **Defining what an agent can/cannot do?** → Put it in the role file as natural language, not as code conditions
+- **Routing between agents?** → GM directs, Front Desk executes, escalations go up — defined in role files
+- **Role boundaries are natural language**, not enums or switch statements — the AI reads them and reasons about edge cases
+
+See `docs/AGENT-ROLES.md` for the full architecture, Front Desk and GM role definitions, channel architecture, and build order.
 
 ---
 
