@@ -183,7 +183,7 @@ const sendEmail: AgentTool = {
       const { insertCommand } = await import('../../db/commands')
       await insertCommand({
         accountId: ctx.accountId,
-        type: 'SendEmail',
+        commandType: 'SendEmail',
         payload: {
           outboundMessageId: msg.id,
           to: toEmail,
@@ -192,10 +192,12 @@ const sendEmail: AgentTool = {
           body: input.body,
           replyToken: replyToken,
         },
+        issuedByAgent: (ctx as any).agentId ?? 'retention',
         status: 'pending',
         attempts: 0,
         maxAttempts: 3,
-      })
+        nextAttemptAt: new Date().toISOString(),
+      } as any)
 
       // Track in working set
       ctx.workingSet.emailed.push(toEmail)

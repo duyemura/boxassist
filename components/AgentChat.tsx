@@ -193,7 +193,7 @@ function ToolCallBadge({ name, input }: { name: string; input?: unknown }) {
         <span style={{ fontSize: 9 }}>{expanded ? '▼' : '▶'}</span>
         {toolDisplayName(name)}
       </button>
-      {expanded && input && (
+      {expanded && !!input && (
         <pre className="mt-1 text-[10px] text-gray-500 font-mono leading-relaxed px-2 py-1.5 overflow-x-auto"
              style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
           {JSON.stringify(input, null, 2)}
@@ -233,7 +233,7 @@ function ToolResultBadge({ name, result }: { name: string; result?: unknown }) {
         <span style={{ fontSize: 9 }}>{isError ? '✕' : '✓'}</span>
         {toolDisplayName(name)}: {summary}
       </button>
-      {expanded && result && (
+      {expanded && !!result && (
         <pre className="mt-1 text-[10px] text-gray-500 font-mono leading-relaxed px-2 py-1.5 overflow-x-auto max-h-40 overflow-y-auto"
              style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
           {JSON.stringify(result, null, 2)}

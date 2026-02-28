@@ -199,7 +199,7 @@ function IntegrationCard({ integration, connected, onConnect, onDisconnect }: In
       {connected && (
         <p className="text-[10px] text-gray-400 mt-3">
           Connected {formatDate(connected.connectedAt)}
-          {connected.metadata?.from_number && (
+          {!!connected.metadata?.from_number && (
             <span className="ml-2 text-gray-500">· From: {connected.metadata.from_number as string}</span>
           )}
         </p>

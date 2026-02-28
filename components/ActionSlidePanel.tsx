@@ -24,7 +24,7 @@ interface ActionSlidePanelProps {
   action: {
     id: string
     content: {
-      memberName: string
+      memberName?: string
       memberEmail?: string
       riskLevel?: 'high' | 'medium' | 'low'
       priority?: 'critical' | 'high' | 'medium' | 'low'
@@ -32,7 +32,7 @@ interface ActionSlidePanelProps {
       title?: string
       riskReason?: string      // fallback for old cards
       detail?: string
-      recommendedAction: string
+      recommendedAction?: string
       draftedMessage?: string  // old field name
       draftMessage?: string    // new field name
       messageSubject?: string

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   if (!account) return NextResponse.json({ artifacts: [] })
 
-  const artifacts = await listArtifacts(account.id)
+  const artifacts = await listArtifacts(account.id as string)
   return NextResponse.json({ artifacts })
 }
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   const artifact = await createArtifact({
-    accountId: account.id,
+    accountId: account.id as string,
     artifactType: artifactType as ArtifactType,
     title,
     data,

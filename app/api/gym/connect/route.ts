@@ -154,13 +154,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 5: Seed GM agent (idempotent) ───────────────────────────────────
-    seedGMAgent(accountId).catch(err =>
+    seedGMAgent(accountId!).catch(err =>
       console.error('[connect] GM seed failed:', (err as Error).message)
     )
 
     // ── Step 6: Bootstrap business profile (fire-and-forget) ─────────────────
     bootstrapBusinessProfile(
-      { accountId, accountName, memberCount },
+      { accountId: accountId!, accountName, memberCount },
       { claude: { evaluate: (system, prompt) => callClaude(system, prompt, HAIKU) } },
     ).catch(err => console.error('[connect] Bootstrap failed:', (err as Error).message))
 

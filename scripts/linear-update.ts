@@ -37,7 +37,7 @@ async function main() {
   let issueId = issueIdOrIdentifier
   if (issueIdOrIdentifier.match(/^[A-Z]+-\d+$/)) {
     const issues = await client.issues({
-      filter: { identifier: { eq: issueIdOrIdentifier } },
+      filter: { identifier: { eq: issueIdOrIdentifier } } as any,
     })
     const issue = issues.nodes[0]
     if (!issue) {

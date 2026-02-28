@@ -63,6 +63,8 @@ export type MessageProvider = 'resend' | 'twilio'
 export interface AgentTask {
   id: string
   account_id: string
+  /** @deprecated alias — DB column is gym_id in some tables; prefer account_id */
+  gym_id?: string
   assigned_agent: AgentName
   created_by_agent: AgentName
   task_type: string                   // 'attendance_drop_intervention' | 'no_show_recovery' | 'lead_followup' | 'churn_prevention' | 'manual'

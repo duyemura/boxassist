@@ -24,6 +24,7 @@ export interface Artifact {
 // ── Research Summary data shape ──────────────────────────────
 
 export interface ResearchSummaryData {
+  title?: string
   accountName: string
   generatedAt: string
   period: string                       // "February 2026" or "Last 30 days"

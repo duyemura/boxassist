@@ -51,7 +51,7 @@ export async function createTask(params: CreateTaskParams): Promise<AgentTask> {
 
   // Publish TaskCreated event (fire-and-forget — never block task creation)
   publishEvent({
-    accountId: task.gym_id,
+    accountId: task.gym_id ?? task.account_id,
     eventType: 'TaskCreated',
     aggregateId: task.id,
     aggregateType: 'task',
@@ -119,24 +119,25 @@ export async function updateTaskStatus(
   // Publish lifecycle events (fire-and-forget — never block status updates)
   if (status === 'resolved' || status === 'escalated') {
     // Need gym_id for the event — fetch the task
-    supabaseAdmin
-      .from('agent_tasks')
-      .select('gym_id, task_type, member_email, assigned_agent')
-      .eq('id', taskId)
-      .single()
-      .then(({ data: task }) => {
+    Promise.resolve(
+      supabaseAdmin
+        .from('agent_tasks')
+        .select('gym_id, task_type, member_email, assigned_agent')
+        .eq('id', taskId)
+        .single()
+    ).then(({ data: task }) => {
         if (!task) return
         const eventType = status === 'resolved' ? 'TaskCompleted' : 'TaskEscalated'
         return publishEvent({
-          accountId: task.gym_id,
+          accountId: (task as any).gym_id,
           eventType,
           aggregateId: taskId,
           aggregateType: 'task',
           payload: {
             taskId,
-            taskType: task.task_type,
-            assignedAgent: task.assigned_agent,
-            memberEmail: task.member_email,
+            taskType: (task as any).task_type,
+            assignedAgent: (task as any).assigned_agent,
+            memberEmail: (task as any).member_email,
             status,
             outcome: opts?.outcome ?? null,
             outcomeScore: opts?.outcomeScore ?? null,
@@ -144,8 +145,8 @@ export async function updateTaskStatus(
           },
         })
       })
-      .catch(err => {
-        console.warn(`[tasks] Failed to publish ${status} event:`, (err as Error).message)
+      .catch((err: Error) => {
+        console.warn(`[tasks] Failed to publish ${status} event:`, err.message)
       })
   }
 }

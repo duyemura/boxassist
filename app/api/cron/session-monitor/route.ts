@@ -33,7 +33,6 @@ async function handler(req: NextRequest) {
       .from('agent_sessions')
       .update({
         status: 'completed',
-        context: supabaseAdmin.rpc ? undefined : undefined, // context stays as-is
         updated_at: new Date().toISOString(),
       })
       .lt('expires_at', new Date().toISOString())

@@ -414,7 +414,7 @@ export default function SkillEditor({ skill, isDemo, onBack, onSaved, onDeleted 
                   key={opt.value}
                   type="button"
                   disabled={!isClickable}
-                  onClick={() => isClickable && setAutomationLevel(opt.value)}
+                  onClick={() => isClickable && setAutomationLevel(opt.value as 'draft_only' | 'smart' | 'full_auto')}
                   className={[
                     'flex-1 px-3 py-2.5 text-left transition-colors',
                     idx < AUTOMATION_OPTIONS.length - 1 ? 'border-r border-gray-200' : '',

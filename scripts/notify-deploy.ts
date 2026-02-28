@@ -57,7 +57,7 @@ async function main() {
     try {
       // Look up issue by identifier (e.g., "AGT-4")
       const issues = await client.issues({
-        filter: { identifier: { eq: identifier } },
+        filter: { identifier: { eq: identifier } } as any,
       })
       const issue = issues.nodes[0]
 

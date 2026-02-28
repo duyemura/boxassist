@@ -392,7 +392,7 @@ const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
             }}
           />
           <button
-            onClick={sendMessage}
+            onClick={() => sendMessage()}
             disabled={!input.trim() || isThinking}
             className="flex-shrink-0 text-[11px] font-semibold text-white px-3 py-2 transition-opacity hover:opacity-80 disabled:opacity-30 flex items-center gap-1"
             style={{ backgroundColor: '#0063FF', borderRadius: 4, height: 38 }}

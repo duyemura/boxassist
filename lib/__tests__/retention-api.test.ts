@@ -59,7 +59,7 @@ vi.mock('@/lib/db/kpi', () => ({
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeRequest(path: string, options?: RequestInit) {
-  return new NextRequest(`http://localhost:3000${path}`, options)
+  return new NextRequest(`http://localhost:3000${path}`, options as any)
 }
 
 // ── Scorecard Endpoint ───────────────────────────────────────────────────────

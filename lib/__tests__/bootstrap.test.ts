@@ -59,7 +59,7 @@ describe('bootstrapBusinessProfile', () => {
   it('calls Claude with account name and member count', async () => {
     await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(mockClaude.evaluate).toHaveBeenCalledOnce()
@@ -71,7 +71,7 @@ describe('bootstrapBusinessProfile', () => {
   it('writes a gym_context memory with importance 5', async () => {
     await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(createMemory).toHaveBeenCalledWith(
@@ -91,7 +91,7 @@ describe('bootstrapBusinessProfile', () => {
 
     await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(chain.update).toHaveBeenCalledWith(
@@ -106,7 +106,7 @@ describe('bootstrapBusinessProfile', () => {
   it('returns profile and skipped=false on success', async () => {
     const result = await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(result.skipped).toBe(false)
@@ -119,7 +119,7 @@ describe('bootstrapBusinessProfile', () => {
 
     const result = await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(result.skipped).toBe(true)
@@ -132,7 +132,7 @@ describe('bootstrapBusinessProfile', () => {
 
     const result = await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
       { force: true },
     )
 
@@ -147,7 +147,7 @@ describe('bootstrapBusinessProfile', () => {
     await expect(
       bootstrapBusinessProfile(
         { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-        { claude: mockClaude },
+        { claude: mockClaude as any },
       ),
     ).rejects.toThrow('[bootstrap] No JSON in Claude response')
   })
@@ -157,7 +157,7 @@ describe('bootstrapBusinessProfile', () => {
 
     const result = await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: 'Peaceful Pines Yoga', memberCount: 30 },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(result.profile.businessTypeTag).toBe('fitness_business')
@@ -169,7 +169,7 @@ describe('bootstrapBusinessProfile', () => {
 
     const result = await bootstrapBusinessProfile(
       { accountId: ACCOUNT_ID, accountName: ACCOUNT_NAME, memberCount: MEMBER_COUNT },
-      { claude: mockClaude },
+      { claude: mockClaude as any },
     )
 
     expect(result.skipped).toBe(false)

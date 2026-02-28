@@ -50,15 +50,15 @@ export default function DashboardShell({ children, activeSection = 'agents' }: D
       agents={[]}
       selectedAgentId={null}
       onSelectAgent={() => {}}
-      mobileTab="agents"
+      mobileTab="queue"
       onMobileTabChange={() => {}}
       rightPanel={<div />}
       slidePanel={null}
       onSlidePanelClose={() => {}}
-      activeSection={activeSection}
+      activeSection={activeSection as any}
       onSectionChange={(section) => {
         if (section === 'agents') router.push('/dashboard')
-        if (section === 'members') router.push('/dashboard/members')
+        if ((section as string) === 'members') router.push('/dashboard/members')
         if (section === 'settings') router.push('/dashboard')
       }}
     >

@@ -43,6 +43,8 @@ export interface WorkflowRun {
   id: string
   workflow_id: string
   account_id: string
+  /** @deprecated alias — DB column is gym_id in some tables; prefer account_id */
+  gym_id: string
   member_id: string
   member_email: string
   member_name: string

@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     // Also cache the compact snapshot so the next visit can skip the PushPress fetch.
     const avgPrice = accountRow.avg_membership_price ?? 150
     await Promise.all([
-      writeStatsFromSnapshot(accountId, snapshot, avgPrice),
+      writeStatsFromSnapshot(accountId, { ...snapshot, accountName: snapshot.accountName ?? '' }, avgPrice),
       writeScheduleFromSnapshot(accountId, snapshot),
       cacheSnapshotForSetup(accountId, snapshot),
     ])

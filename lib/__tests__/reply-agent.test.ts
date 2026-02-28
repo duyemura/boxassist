@@ -104,7 +104,7 @@ describe('automation level routing', () => {
   })
 
   it('smart: queues reply for owner review', () => {
-    const automationLevel = 'smart'
+    const automationLevel: string = 'smart'
     const decision: ReplyDecision = { decision: 'reply', reply: 'See you soon!', reason: 'Positive reply' }
 
     const shouldSendAutomatically = automationLevel === 'full_auto' && decision.decision !== 'escalate'

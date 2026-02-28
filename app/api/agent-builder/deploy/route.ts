@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       const account = await getAccountForUser(session.id)
 
       if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
-      accountId = account.id
+      accountId = account.id as string
       accountName = (account as any).account_name || (account as any).gym_name || (account as any).name || 'Your Gym'
     }
 

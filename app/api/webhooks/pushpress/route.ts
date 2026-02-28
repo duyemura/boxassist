@@ -113,7 +113,7 @@ async function processWebhookAsync(rawBody: string) {
   const { data: webhookEvent, error: insertErr } = await supabaseAdmin
     .from('webhook_events')
     .insert({
-      account_id: gym?.id ?? null,
+      account_id: account?.id ?? null,
       event_type: eventType,
       payload: payload as Record<string, unknown>,
       agent_runs_triggered: 0
@@ -135,12 +135,12 @@ async function processWebhookAsync(rawBody: string) {
     return
   }
 
-  console.log(`[webhook] gym matched: ${account.id} (${gym.account_name})`)
+  console.log(`[webhook] gym matched: ${account.id} (${(account as any).account_name})`)
 
   // Decrypt the stored API key to pass to MCP
   let decryptedApiKey: string
   try {
-    decryptedApiKey = decrypt(gym.pushpress_api_key)
+    decryptedApiKey = decrypt(account.pushpress_api_key)
   } catch (err: any) {
     console.error('[webhook] could not decrypt API key for gym', account.id, err.message)
     // Still mark as processed so we know it ran
@@ -154,7 +154,7 @@ async function processWebhookAsync(rawBody: string) {
   }
 
   const gymWithKey = {
-    ...gym,
+    ...account,
     pushpress_api_key: decryptedApiKey
   }
 
@@ -178,7 +178,7 @@ async function processWebhookAsync(rawBody: string) {
     if (!agent?.is_active) continue
 
     try {
-      await runSubscribedAgent(gymWithKey, agent, eventType, eventData, auto.id)
+      await runSubscribedAgent(gymWithKey as any, agent, eventType, eventData, auto.id)
       runsTriggered++
     } catch (err) {
       console.error(`[webhook] agent ${agent.id} failed:`, err)

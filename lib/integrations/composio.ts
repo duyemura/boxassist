@@ -71,7 +71,7 @@ export async function initiateOAuthConnection(
 
   return {
     redirectUrl: request.redirectUrl,
-    connectedAccountId: request.connectedAccountId ?? (request as any).id ?? '',
+    connectedAccountId: (request as any).connectedAccountId ?? (request as any).id ?? '',
   }
 }
 
@@ -108,7 +108,7 @@ export async function initiateApiKeyConnection(
     config: connectionData,
   })
 
-  return request.connectedAccountId ?? (request as any).id ?? ''
+  return (request as any).connectedAccountId ?? (request as any).id ?? ''
 }
 
 /**
@@ -168,7 +168,7 @@ export async function getComposioToolsForAccount(accountId: string): Promise<Age
     const composio = getComposio()
 
     // Get tools available for this user (filtered to their connected integrations)
-    const toolList = await composio.tools.list({ userIds: [accountId] } as any)
+    const toolList = await (composio.tools as any).list({ userIds: [accountId] })
     const tools = (toolList as any).items ?? (toolList as any).tools ?? []
 
     if (!tools.length) return []
@@ -178,7 +178,7 @@ export async function getComposioToolsForAccount(accountId: string): Promise<Age
       return {
         name: toolName,
         description: t.description ?? '',
-        inputSchema: t.inputSchema ?? t.parameters ?? { type: 'object', properties: {} },
+        input_schema: t.inputSchema ?? t.parameters ?? { type: 'object', properties: {} },
         requiresApproval: requiresApproval(toolName),
         execute: async (input: Record<string, unknown>, ctx: ToolContext) => {
           const result = await composio.tools.execute(toolName, {

@@ -99,8 +99,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Decrypt API key
-  const rawKey = account.pushpress_api_key
-  const companyId = account.pushpress_company_id ?? ''
+  const rawKey = account.pushpress_api_key as string | undefined
+  const companyId = (account.pushpress_company_id as string) ?? ''
 
   if (!rawKey) {
     return new Response(JSON.stringify({ error: 'PushPress API key not configured' }), {
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
           }
 
           for await (const event of startSession({
-            accountId: account.id,
+            accountId: account.id as string,
             goal,
             agentId: body.agentId as string | undefined,
             tools: (body.tools as string[]) ?? ['data', 'action', 'learning'],

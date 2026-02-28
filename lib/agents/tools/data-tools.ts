@@ -153,8 +153,8 @@ const getMembers: AgentTool = {
           : 0
 
         const memberData = buildMemberData(
-          { id: cid, companyId: '', name: { first: c.name?.first ?? c.first_name ?? '', last: c.name?.last ?? c.last_name ?? '' }, email: c.email ?? '', role: c.role },
-          enrollment ? { id: enrollment.id, customerId: cid, status: (enrollment.status ?? 'active') as any, billingSchedule: (schedule ?? { period: 'month', interval: 1 }) as any } : null,
+          { id: cid, companyId: '', name: { first: c.name?.first ?? c.first_name ?? '', last: c.name?.last ?? c.last_name ?? '', nickname: (c.name as any)?.nickname ?? null }, email: c.email ?? '', role: c.role as any } as any,
+          enrollment ? { id: enrollment.id, customerId: cid, status: (enrollment.status ?? 'active') as any, billingSchedule: (schedule ?? { period: 'month', interval: 1 }) as any } as any : null,
           memberCheckins as any[],
           now,
           monthlyRevenue,

@@ -169,7 +169,7 @@ export class RetentionAgent extends BaseAgent {
       const memberName = task?.member_name ?? 'the member'
       const goal = task?.goal ?? 'Re-engage the member'
       const taskType = task?.task_type ?? 'churn_risk'
-      const accountId = opts?.accountId ?? task?.gym_id
+      const accountId = opts?.accountId ?? task?.gym_id ?? task?.account_id
 
       // Load skill-aware system prompt based on task type (with memories if accountId available)
       let systemPrompt: string

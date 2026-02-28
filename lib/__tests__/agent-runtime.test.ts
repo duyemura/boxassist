@@ -234,8 +234,8 @@ describe('agent-runtime', () => {
           },
           {
             id: 'p1', name: 'Ghost Lead', email: 'ghost@example.com',
-            status: 'prospect', membershipType: null,
-            memberSince: '2025-10-01', lastCheckinAt: null,
+            status: 'prospect', membershipType: 'none',
+            memberSince: '2025-10-01', lastCheckinAt: undefined,
             recentCheckinsCount: 0, previousCheckinsCount: 0, monthlyRevenue: 0,
           },
         ],

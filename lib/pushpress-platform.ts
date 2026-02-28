@@ -138,6 +138,7 @@ export interface PPClass {
   day?: string               // day of week (e.g. 'monday')
   dayOfWeek?: number         // 0-6
   maxCapacity?: number       // class cap
+  defaultCapacity?: number   // fallback capacity
   enrolledCount?: number     // current signups
   waitlistCount?: number
   coach?: string             // coach name or ID

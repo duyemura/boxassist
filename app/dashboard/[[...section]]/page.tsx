@@ -44,6 +44,7 @@ interface ActionCard {
 interface DashboardData {
   user: any
   gym: any
+  account?: any
   tier: string
   isDemo?: boolean
   agents: any[]
@@ -374,6 +375,20 @@ function DashboardContent() {
   const autopilotLevel = acct?.autopilot_level ?? 'draft_only'
   const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
 
+  // Build de-duped, non-dismissed action list
+  const allActions: ActionCard[] = [
+    ...(data?.pendingActions || []),
+    ...(runResult?.output?.actions?.map((a: any, i: number) => ({
+      id: isDemo ? `run-${i}` : `new-${i}`,
+      content: a,
+      approved: null,
+      dismissed: null,
+    })) || []),
+  ]
+  const uniqueActions = allActions
+    .filter((a, i, self) => i === self.findIndex(b => b.content?.memberId === a.content?.memberId))
+    .filter(a => !dismissedIds.has(a.id))
+
   // Dashboard stats — from API or computed from local data
   const apiStats = (data as any)?.stats
   const dashStats = {
@@ -388,20 +403,6 @@ function DashboardContent() {
     pending_count: a.pending_count ?? 0,
     next_run_at: a.next_run_at ?? null,
   }))
-
-  // Build de-duped, non-dismissed action list
-  const allActions: ActionCard[] = [
-    ...(data?.pendingActions || []),
-    ...(runResult?.output?.actions?.map((a: any, i: number) => ({
-      id: isDemo ? `run-${i}` : `new-${i}`,
-      content: a,
-      approved: null,
-      dismissed: null,
-    })) || []),
-  ]
-  const uniqueActions = allActions
-    .filter((a, i, self) => i === self.findIndex(b => b.content?.memberId === a.content?.memberId))
-    .filter(a => !dismissedIds.has(a.id))
 
   // ─── Content ───────────────────────────────────────────────────────────────
 

@@ -44,10 +44,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   try {
     // 1. Process command bus
     const sendEmailExecutor = new SendEmailExecutor({
-      mailer: { sendEmail },
+      mailer: { sendEmail: sendEmail as any },
       db: {
         createOutboundMessage: dbCommands.createOutboundMessage,
-        updateOutboundMessageStatus: dbCommands.updateOutboundMessageStatus,
+        updateOutboundMessageStatus: dbCommands.updateOutboundMessageStatus as any,
       },
     })
 

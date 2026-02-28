@@ -150,11 +150,12 @@ export async function runAgentWithMCP(opts: MCPAgentOptions): Promise<MCPAgentRe
             arguments: block.input as Record<string, unknown>
           })
           // MCP result content is an array of content blocks
-          const textContent = mcpResult.content
+          const contentArr = mcpResult.content as any[]
+          const textContent = contentArr
             .filter((c: any) => c.type === 'text')
             .map((c: any) => c.text)
             .join('\n')
-          resultContent = textContent || JSON.stringify(mcpResult.content)
+          resultContent = textContent || JSON.stringify(contentArr)
         } catch (err: any) {
           resultContent = `Error calling ${block.name}: ${err.message}`
         }

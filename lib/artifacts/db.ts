@@ -69,7 +69,7 @@ export async function getArtifactByShareToken(token: string): Promise<Artifact |
 export async function listArtifacts(accountId: string, limit = 20): Promise<Artifact[]> {
   const { data, error } = await supabaseAdmin
     .from('artifacts')
-    .select('id, gym_id, artifact_type, title, task_id, created_by, share_token, created_at')
+    .select('id, account_id, artifact_type, title, data, html, task_id, created_by, share_token, created_at')
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
     .limit(limit)

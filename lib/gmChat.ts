@@ -45,6 +45,7 @@ export interface GMChatResponse {
 export interface AccountContext {
   accountId: string
   accountName: string
+  memberCount?: number
 }
 
 // ── Specialist prompts ────────────────────────────────────────────────────────

@@ -173,7 +173,7 @@ describe('reply sentiment routing', () => {
 
   it('negative reply routes to failure path', () => {
     const cfg = { on_reply_positive: 'step_2', on_reply_negative: 'step_3' }
-    const sentiment = 'negative'
+    const sentiment: string = 'negative'
     const nextStep = sentiment === 'positive' && cfg.on_reply_positive
       ? cfg.on_reply_positive
       : cfg.on_reply_negative

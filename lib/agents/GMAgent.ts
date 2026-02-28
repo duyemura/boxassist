@@ -42,7 +42,7 @@ export interface MemberData {
   status: 'active' | 'cancelled' | 'paused' | 'prospect'
   membershipType: string
   memberSince: string
-  lastCheckinAt?: string
+  lastCheckinAt?: string | null
   recentCheckinsCount: number      // last 30 days
   previousCheckinsCount: number    // 30-60 days ago (for trend)
   renewalDate?: string

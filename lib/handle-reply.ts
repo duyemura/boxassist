@@ -110,7 +110,7 @@ export async function handleInboundReply({
     taskId: task.id,
     memberEmail,
     replyContent: memberReply,
-    accountId: task.gym_id,
+    accountId: task.gym_id ?? task.account_id,
   })
 
   console.log(`handleInboundReply: RetentionAgent completed for task ${task.id}`)

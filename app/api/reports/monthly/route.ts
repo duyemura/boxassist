@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     const element = createElement(RetentionReportPDF, { accountName, month, stats, actions })
     const buffer = await renderToBuffer(element as any)
 
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',

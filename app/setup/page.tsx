@@ -831,7 +831,7 @@ export default function SetupPage() {
           <p className="text-sm text-gray-500 mb-2">{loadError}</p>
           <p className="text-xs text-gray-400 mb-6">Check the terminal for more details.</p>
           <div className="flex flex-col gap-2">
-            <button onClick={fetchRecommendation} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
+            <button onClick={() => fetchRecommendation()} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
               Try again
             </button>
             <button onClick={() => setPhase('build')} className="w-full py-3 text-sm font-medium border border-gray-200 bg-white hover:bg-gray-50 transition-colors" style={{ color: '#6B7280' }}>
