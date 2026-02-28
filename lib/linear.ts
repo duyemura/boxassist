@@ -9,7 +9,8 @@
  */
 
 import { LinearClient } from '@linear/sdk'
-import { buildStructuredTicket, type BugTicketInput } from './bug-triage'
+import { buildStructuredTicket, classifyArea, type BugTicketInput } from './bug-triage'
+import { investigateTicket } from './ticket-investigator'
 
 let _client: LinearClient | null = null
 
@@ -142,6 +143,21 @@ async function createStructuredBugIssue(
   }
 }
 
+/** Classify area from a page URL for non-stack-trace tickets. */
+function areaFromUrl(url?: string | null): string {
+  if (!url) return 'General'
+  try {
+    const pathname = new URL(url).pathname
+    if (pathname.startsWith('/dashboard')) return 'Dashboard'
+    if (pathname.startsWith('/setup')) return 'Setup'
+    if (pathname.startsWith('/api/cron')) return 'Cron'
+    if (pathname.startsWith('/api/')) return 'API'
+    return 'General'
+  } catch {
+    return 'General'
+  }
+}
+
 /** Create a simple issue for manual feedback and suggestions. */
 async function createSimpleIssue(
   client: LinearClient,
@@ -151,14 +167,40 @@ async function createSimpleIssue(
 ): Promise<LinearIssueResult | null> {
   const tag = feedbackTag(input.type)
   const priority = feedbackPriority(input.type)
+  const isBugType = input.type === 'bug' || input.type === 'error'
+
+  // Classify area from page URL (even without stack trace)
+  const area = areaFromUrl(input.url)
 
   const descriptionParts: string[] = []
-  descriptionParts.push(input.message)
-  descriptionParts.push('')
-  descriptionParts.push('---')
 
-  if (input.url) {
-    descriptionParts.push(`**Page:** ${input.url}`)
+  // Use structured sections for bugs, simple format for feedback/suggestions
+  if (isBugType) {
+    descriptionParts.push('## What happens')
+    descriptionParts.push(input.message)
+    descriptionParts.push('')
+
+    descriptionParts.push('## What should happen')
+    descriptionParts.push('_To be determined during investigation._')
+    descriptionParts.push('')
+
+    if (input.url) {
+      descriptionParts.push('## Technical context')
+      descriptionParts.push(`- **Page:** ${input.url}`)
+      if (meta.navigationHistory?.length) {
+        descriptionParts.push(`- **Navigation:** ${meta.navigationHistory.map((p: string) => `\`${p}\``).join(' → ')}`)
+      }
+      descriptionParts.push(`- **Area:** ${area}`)
+      descriptionParts.push('')
+    }
+  } else {
+    descriptionParts.push(input.message)
+    descriptionParts.push('')
+    descriptionParts.push('---')
+
+    if (input.url) {
+      descriptionParts.push(`**Page:** ${input.url}`)
+    }
   }
 
   if (input.feedbackId) {
@@ -167,11 +209,15 @@ async function createSimpleIssue(
 
   if (input.screenshotUrl) {
     descriptionParts.push('')
-    descriptionParts.push(`**Screenshot:**`)
+    if (isBugType) {
+      descriptionParts.push('## Screenshot')
+    } else {
+      descriptionParts.push('**Screenshot:**')
+    }
     descriptionParts.push(`![Screenshot](${input.screenshotUrl})`)
   }
 
-  if (meta.navigationHistory?.length) {
+  if (!isBugType && meta.navigationHistory?.length) {
     descriptionParts.push('')
     descriptionParts.push(`**Navigation history:**`)
     descriptionParts.push(meta.navigationHistory.map((p: string) => `- \`${p}\``).join('\n'))
@@ -190,18 +236,45 @@ async function createSimpleIssue(
     descriptionParts.push('```')
   }
 
-  const titleText = input.message.replace(/\n/g, ' ').slice(0, 80)
-  const title = `[${tag}] ${titleText}${input.message.length > 80 ? '...' : ''}`
+  // For bugs, add triage section
+  if (isBugType) {
+    descriptionParts.push('')
+    descriptionParts.push('## Triage')
+    descriptionParts.push('**Classification:** ⏳ pending AI investigation')
+    descriptionParts.push('**Reason:** No stack trace — AI investigation will analyze the bug description and identify likely files.')
+  }
+
+  // Title: use area tag for bugs, generic tag for others
+  const titleText = input.message.replace(/\n/g, ' ').slice(0, 70)
+  const title = isBugType
+    ? `[${area}] ${titleText}${input.message.length > 70 ? '...' : ''}`
+    : `[${tag}] ${titleText}${input.message.length > 70 ? '...' : ''}`
 
   try {
-    const labelIds = await ensureLabel(client, teamId, tag)
+    // Collect labels: type label + area label for bugs
+    const allLabelIds: string[] = []
+    const labelNames = [tag]
+    if (isBugType) {
+      const areaLabelMap: Record<string, string> = {
+        Dashboard: 'dashboard', API: 'api', Setup: 'setup',
+        Cron: 'cron', Email: 'email', General: 'api',
+      }
+      const areaLabel = areaLabelMap[area]
+      if (areaLabel && areaLabel !== tag) labelNames.push(areaLabel)
+      labelNames.push('needs-investigation')
+    }
+
+    for (const name of labelNames) {
+      const ids = await ensureLabel(client, teamId, name)
+      allLabelIds.push(...ids)
+    }
 
     const result = await client.createIssue({
       teamId,
       title,
       description: descriptionParts.join('\n'),
       priority,
-      labelIds,
+      labelIds: allLabelIds,
     })
 
     const issue = await result.issue
@@ -210,11 +283,28 @@ async function createSimpleIssue(
       return null
     }
 
-    return {
+    const issueResult: LinearIssueResult = {
       id: issue.id,
       identifier: issue.identifier,
       url: issue.url,
     }
+
+    // Fire off AI investigation for bugs/errors (async, non-blocking)
+    if (isBugType) {
+      investigateTicket({
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        title,
+        description: input.message,
+        pageUrl: input.url ?? undefined,
+        screenshotUrl: input.screenshotUrl,
+        navigationHistory: meta.navigationHistory,
+      }).catch(err => {
+        console.error('[linear] AI investigation failed:', err)
+      })
+    }
+
+    return issueResult
   } catch (err) {
     console.error('[linear] Failed to create issue:', err)
     return null

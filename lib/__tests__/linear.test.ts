@@ -32,6 +32,11 @@ vi.mock('@linear/sdk', () => {
   }
 })
 
+// Mock the ticket investigator (fire-and-forget, don't actually call Claude)
+vi.mock('../ticket-investigator', () => ({
+  investigateTicket: vi.fn().mockResolvedValue(undefined),
+}))
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('linear integration', () => {
@@ -85,11 +90,12 @@ describe('linear integration', () => {
     })
 
     // Check createIssue was called with bug priority (2 = High)
+    // Bug titles now use area tag [General] instead of [bug]
     expect(mockIssueCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         teamId: 'team-001',
         priority: 2,
-        title: expect.stringContaining('[bug]'),
+        title: expect.stringContaining('Button does not work'),
       }),
     )
   })
@@ -126,17 +132,20 @@ describe('linear integration', () => {
 
   it('reuses existing labels instead of creating new ones', async () => {
     const mockIssue = { id: 'i4', identifier: 'GA-4', url: 'https://linear.app/ga/GA-4' }
+    // Bug tickets now get: type label + area label + needs-investigation
+    // All share the same existing label for this test
     mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-bug-label' }] })
     mockIssueCreate.mockResolvedValue({ issue: mockIssue })
 
     const { createFeedbackIssue } = await import('../linear')
     await createFeedbackIssue({ type: 'bug', message: 'Crash' })
 
-    // Should NOT have called createLabel since label already exists
+    // Should NOT have called createLabel since labels already exist
     expect(mockCreateIssueLabel).not.toHaveBeenCalled()
-    expect(mockIssueCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ labelIds: ['existing-bug-label'] }),
-    )
+    // Bug tickets now include multiple labels (bug + area + needs-investigation)
+    const callArg = mockIssueCreate.mock.calls[0][0]
+    expect(callArg.labelIds).toContain('existing-bug-label')
+    expect(callArg.labelIds.length).toBeGreaterThanOrEqual(1)
   })
 
   it('handles API errors gracefully', async () => {
@@ -189,7 +198,7 @@ describe('linear integration', () => {
     expect(callArg.priority).toBe(2)
   })
 
-  it('falls back to simple format for feedback without stack traces', async () => {
+  it('uses area-tagged title for bugs without stack traces', async () => {
     const mockIssue = { id: 'i-simple', identifier: 'GA-11', url: 'https://linear.app/ga/GA-11' }
     mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-label' }] })
     mockIssueCreate.mockResolvedValue({ issue: mockIssue })
@@ -202,10 +211,58 @@ describe('linear integration', () => {
 
     const callArg = mockIssueCreate.mock.calls[0][0]
 
-    // Simple format: tag-based title, no structured sections
-    expect(callArg.title).toContain('[bug]')
+    // Bug titles now use area classification (General when no URL)
+    expect(callArg.title).toContain('[General]')
+    // Should have structured sections for bugs
+    expect(callArg.description).toContain('## What happens')
+    expect(callArg.description).toContain('## Triage')
+    expect(callArg.description).toContain('pending AI investigation')
+    // No red test sketch (that's for stack-trace tickets)
     expect(callArg.description).not.toContain('## Red test sketch')
     expect(callArg.priority).toBe(2) // High for bugs
+  })
+
+  it('classifies area from page URL for bugs', async () => {
+    const mockIssue = { id: 'i-area', identifier: 'GA-12', url: 'https://linear.app/ga/GA-12' }
+    mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-label' }] })
+    mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+    const { createFeedbackIssue } = await import('../linear')
+    await createFeedbackIssue({
+      type: 'bug',
+      message: 'Chat only shows my messages, not agent replies',
+      url: 'http://localhost:3000/dashboard',
+      metadata: {
+        navigationHistory: ['/dashboard/improvements'],
+        viewport: { width: 1484, height: 897 },
+      },
+    })
+
+    const callArg = mockIssueCreate.mock.calls[0][0]
+
+    // Should classify as Dashboard from the URL
+    expect(callArg.title).toContain('[Dashboard]')
+    expect(callArg.description).toContain('## What happens')
+    expect(callArg.description).toContain('## Technical context')
+    expect(callArg.description).toContain('Dashboard')
+  })
+
+  it('fires AI investigation for bug tickets', async () => {
+    const mockIssue = { id: 'i-investigate', identifier: 'GA-13', url: 'https://linear.app/ga/GA-13' }
+    mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-label' }] })
+    mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+    const { createFeedbackIssue } = await import('../linear')
+    await createFeedbackIssue({
+      type: 'bug',
+      message: 'Something is broken',
+      url: 'http://localhost:3000/dashboard',
+    })
+
+    // The investigation is fire-and-forget, so we just verify the ticket was created
+    expect(mockIssueCreate).toHaveBeenCalled()
+    const callArg = mockIssueCreate.mock.calls[0][0]
+    expect(callArg.description).toContain('pending AI investigation')
   })
 
   it('validates connection successfully', async () => {
