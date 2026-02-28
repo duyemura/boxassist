@@ -131,3 +131,39 @@ export async function GET(
     messages,
   })
 }
+
+// ── DELETE /api/agents/runs/[sessionId] ──────────────────────────────────────
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { sessionId: string } },
+) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const account = await getAccountForUser((session as any).id)
+  if (!account) return NextResponse.json({ error: 'No account' }, { status: 404 })
+
+  // Verify session exists and belongs to this account
+  const { data } = await supabaseAdmin
+    .from('agent_sessions')
+    .select('id')
+    .eq('id', params.sessionId)
+    .eq('account_id', account.id)
+    .single()
+
+  if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const { error } = await supabaseAdmin
+    .from('agent_sessions')
+    .delete()
+    .eq('id', params.sessionId)
+    .eq('account_id', account.id)
+
+  if (error) {
+    console.error('[runs/delete] Error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}

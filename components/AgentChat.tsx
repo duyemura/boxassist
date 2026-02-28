@@ -312,11 +312,13 @@ function RunsListView({
   loading,
   onSelect,
   onNew,
+  onDelete,
 }: {
   runs: RunSummary[]
   loading: boolean
   onSelect: (run: RunSummary) => void
   onNew: () => void
+  onDelete: (runId: string) => void
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -363,21 +365,36 @@ function RunsListView({
         {!loading && runs.map(run => {
           const { label, color } = runStatusStyle(run.status)
           return (
-            <button
+            <div
               key={run.id}
+              className="relative group w-full text-left px-4 py-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition-colors cursor-pointer"
               onClick={() => onSelect(run)}
-              className="w-full text-left px-4 py-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm text-gray-900 font-medium leading-snug flex-1 line-clamp-2">
                   {run.goal || 'Untitled session'}
                 </p>
-                <span
-                  className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 leading-tight"
-                  style={{ color, backgroundColor: `${color}18`, border: `1px solid ${color}35` }}
-                >
-                  {label}
-                </span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 leading-tight"
+                    style={{ color, backgroundColor: `${color}18`, border: `1px solid ${color}35` }}
+                  >
+                    {label}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm('Delete this conversation?')) onDelete(run.id)
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 p-0.5"
+                    title="Delete conversation"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-[10px] text-gray-400">{relativeTime(run.created_at)}</span>
@@ -392,7 +409,7 @@ function RunsListView({
                   </span>
                 )}
               </div>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -462,6 +479,22 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
       // ignore
     }
   }, [])
+
+  const deleteRun = useCallback(async (runId: string) => {
+    try {
+      const res = await fetch(`/api/agents/runs/${runId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setRuns(prev => prev.filter(r => r.id !== runId))
+        if (sessionId === runId) {
+          setSessionId(null)
+          setMessages([])
+          setStatus('idle')
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [sessionId])
 
   const startNew = useCallback(() => {
     setSessionId(null)
@@ -777,6 +810,7 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
           loading={runsLoading}
           onSelect={run => loadSession(run.id)}
           onNew={startNew}
+          onDelete={deleteRun}
         />
       ) : (
         <>
