@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
+import FeedbackWidget from '@/components/FeedbackWidget'
+import ErrorCapture from '@/components/ErrorCapture'
 
 interface Agent {
   id: string
@@ -284,6 +286,10 @@ export default function AppShell({
           Settings
         </button>
       </nav>
+
+      {/* Feedback widget + error capture — present on every page */}
+      <FeedbackWidget />
+      <ErrorCapture />
     </div>
   )
 }
