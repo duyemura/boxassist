@@ -17,6 +17,7 @@ import {
   getConversationMessages,
   getConversation,
   addMessage,
+  reassignConversation,
 } from '../../db/conversations'
 import { supabaseAdmin } from '../../supabase'
 
@@ -255,9 +256,43 @@ async function sendSmsReply(
   return { messageId: msg.id, status: 'queued' }
 }
 
+// ── escalate_conversation ─────────────────────────────────────────────
+
+const escalateConversation: AgentTool = {
+  name: 'escalate_conversation',
+  description: 'Escalate a conversation to the GM. Use this when the situation is beyond your authority — cancellation requests, refund disputes, complaints about staff, legal mentions, or anything you are unsure about. The GM will pick up the conversation with full history.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      conversation_id: { type: 'string', description: 'Conversation ID to escalate.' },
+      reason: { type: 'string', description: 'Why you are escalating — be specific about what triggered it and any relevant context.' },
+    },
+    required: ['conversation_id', 'reason'],
+  },
+  requiresApproval: false,
+  async execute(input: Record<string, unknown>) {
+    const conversationId = input.conversation_id as string
+    const reason = input.reason as string
+
+    try {
+      // Reassign conversation to GM with escalated status
+      await reassignConversation(conversationId, 'gm', 'escalated')
+
+      return {
+        escalated: true,
+        conversationId,
+        newRole: 'gm',
+        reason,
+      }
+    } catch (err: any) {
+      return { error: `Failed to escalate: ${err.message}` }
+    }
+  },
+}
+
 // ── Export tool group ────────────────────────────────────────────────────
 
 export const conversationToolGroup: ToolGroup = {
   name: 'conversation',
-  tools: [getConversationHistory, sendReply],
+  tools: [getConversationHistory, sendReply, escalateConversation],
 }
