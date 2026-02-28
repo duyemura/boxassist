@@ -13,6 +13,7 @@ import { dataToolGroup } from './data-tools'
 import { actionToolGroup } from './action-tools'
 import { outputToolGroup } from './output-tools'
 import { learningToolGroup } from './learning-tools'
+import { conversationToolGroup } from './conversation-tools'
 
 // Register built-in groups on first import
 let _registered = false
@@ -22,6 +23,7 @@ export function ensureToolsRegistered(): void {
   registerToolGroup(actionToolGroup)
   registerToolGroup(outputToolGroup)
   registerToolGroup(learningToolGroup)
+  registerToolGroup(conversationToolGroup)
   _registered = true
 }
 
