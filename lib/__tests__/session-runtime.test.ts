@@ -24,12 +24,21 @@ vi.mock('uuid', () => ({
   v4: () => `test-uuid-${++uuidCounter}`,
 }))
 
-// Mock supabase
-const mockInsert = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { id: 'session-1' }, error: null }) }) })
-const mockUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) })
-const mockSelect = vi.fn()
+// Mock supabase — track all update calls for message persistence tests
+const capturedSessionUpdates: any[] = []
 
-vi.mock('../../supabase', () => ({
+const mockInsert = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ single: vi.fn().mockResolvedValue({ data: { id: 'session-1' }, error: null }) }) })
+const mockUpdate = vi.fn((data: any) => {
+  capturedSessionUpdates.push(data)
+  return { eq: vi.fn().mockResolvedValue({ error: null }) }
+})
+const mockSelect = vi.fn().mockReturnValue({
+  eq: vi.fn().mockReturnValue({
+    single: vi.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116', message: 'not found' } }),
+  }),
+})
+
+vi.mock('../supabase', () => ({
   supabaseAdmin: {
     from: vi.fn((table: string) => {
       if (table === 'agent_sessions') {
@@ -56,19 +65,30 @@ vi.mock('../../supabase', () => ({
 }))
 
 // Mock skill-loader
-vi.mock('../../skill-loader', () => ({
+vi.mock('../skill-loader', () => ({
   loadBaseContext: vi.fn().mockResolvedValue('You are an AI agent.'),
   selectRelevantSkills: vi.fn().mockResolvedValue([]),
   buildMultiSkillPrompt: vi.fn().mockResolvedValue('Base prompt.'),
 }))
 
 // Mock memories
-vi.mock('../../db/memories', () => ({
+vi.mock('../db/memories', () => ({
   getMemoriesForPrompt: vi.fn().mockResolvedValue(''),
 }))
 
+// Mock role-loader
+vi.mock('../role-loader', () => ({
+  loadRole: vi.fn().mockResolvedValue(null),
+  buildRolePrompt: vi.fn().mockReturnValue(''),
+}))
+
+// Mock integrations/composio
+vi.mock('../integrations/composio', () => ({
+  getComposioToolsForAccount: vi.fn().mockResolvedValue([]),
+}))
+
 // Mock cost
-vi.mock('../../cost', () => ({
+vi.mock('../cost', () => ({
   calcCost: vi.fn().mockReturnValue({ costUsd: 0.01, markupUsd: 0.003, billedUsd: 0.013 }),
 }))
 
@@ -122,6 +142,7 @@ function makeConfig(overrides?: Record<string, unknown>) {
 beforeEach(() => {
   uuidCounter = 0
   mockCreate.mockReset()
+  capturedSessionUpdates.length = 0
   _clearRegistry()
   _resetRegistration()
 
@@ -363,6 +384,82 @@ describe('tool execution', () => {
 
     const done = events.find(e => e.type === 'done')
     expect(done).toBeDefined()
+  })
+})
+
+describe('message persistence (AGT-7)', () => {
+  it('persists assistant text-only responses to session.messages', async () => {
+    // Bug: when Claude returns text without tool_use (stop_reason = 'end_turn'),
+    // the assistant message was never pushed to session.messages.
+    // Real-time SSE showed the response, but loading the session from DB lost it.
+    mockCreate.mockResolvedValueOnce(makeTextResponse('I found 3 at-risk members.'))
+
+    const events = []
+    for await (const event of startSession(makeConfig())) {
+      events.push(event)
+    }
+
+    // Verify the message was emitted as an event (this always worked)
+    const messageEvent = events.find(e => e.type === 'message')
+    expect(messageEvent).toBeDefined()
+    expect((messageEvent as any).content).toContain('3 at-risk members')
+
+    // Verify the session was persisted with the assistant message
+    expect(capturedSessionUpdates.length).toBeGreaterThanOrEqual(1)
+    const lastUpdate = capturedSessionUpdates[capturedSessionUpdates.length - 1]
+    const messages = lastUpdate.messages
+    expect(messages).toBeDefined()
+    expect(messages.length).toBeGreaterThanOrEqual(2) // user goal + assistant response
+
+    const assistantMsg = messages.find((m: any) => m.role === 'assistant')
+    expect(assistantMsg).toBeDefined()
+    expect(assistantMsg.content).toEqual([{ type: 'text', text: 'I found 3 at-risk members.' }])
+  })
+
+  it('persists assistant messages in turn_based mode', async () => {
+    // In turn_based, the session pauses after text response.
+    // The assistant message must be in the persisted messages.
+    mockCreate.mockResolvedValueOnce(makeTextResponse('Here is step 1.'))
+
+    const events = []
+    for await (const event of startSession(makeConfig({ autonomyMode: 'turn_based' }))) {
+      events.push(event)
+    }
+
+    const paused = events.find(e => e.type === 'paused')
+    expect(paused).toBeDefined()
+
+    // The persisted messages should include the assistant response
+    expect(capturedSessionUpdates.length).toBeGreaterThanOrEqual(1)
+    const lastUpdate = capturedSessionUpdates[capturedSessionUpdates.length - 1]
+    const messages = lastUpdate.messages
+    const assistantMsg = messages.find((m: any) => m.role === 'assistant')
+    expect(assistantMsg).toBeDefined()
+    expect(assistantMsg.content).toEqual([{ type: 'text', text: 'Here is step 1.' }])
+  })
+
+  it('persists assistant messages in multi-turn conversations', async () => {
+    // Turn 1: tool call (assistant message IS saved)
+    mockCreate.mockResolvedValueOnce(
+      makeToolUseResponse([{ name: 'test_tool', input: { query: 'members' } }]),
+    )
+    // Turn 2: text response (assistant message was NOT saved — the bug)
+    mockCreate.mockResolvedValueOnce(makeTextResponse('Analysis complete.'))
+
+    const events = []
+    for await (const event of startSession(makeConfig())) {
+      events.push(event)
+    }
+
+    // Should have at least 2 updates (after turn 1 and after turn 2)
+    expect(capturedSessionUpdates.length).toBeGreaterThanOrEqual(2)
+
+    const lastUpdate = capturedSessionUpdates[capturedSessionUpdates.length - 1]
+    const messages = lastUpdate.messages
+    // Should have: user goal, assistant tool_use, user tool_result, assistant text
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant')
+    expect(assistantMessages.length).toBe(2) // both assistant turns
+    expect(assistantMessages[1].content).toEqual([{ type: 'text', text: 'Analysis complete.' }])
   })
 })
 

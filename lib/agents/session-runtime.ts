@@ -15,6 +15,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { v4 as uuidv4 } from 'uuid'
 import { SONNET } from '../models'
 import { loadBaseContext, selectRelevantSkills, buildMultiSkillPrompt } from '../skill-loader'
+import { loadRole, buildRolePrompt } from '../role-loader'
 import { getMemoriesForPrompt } from '../db/memories'
 import { supabaseAdmin } from '../supabase'
 import { calcCost } from '../cost'
@@ -146,6 +147,14 @@ export async function loadSession(sessionId: string): Promise<AgentSession | nul
 
 async function buildSystemPrompt(config: SessionConfig): Promise<string> {
   const parts: string[] = []
+
+  // Layer 0: Role identity (if agent has a role assigned)
+  if (config.role) {
+    try {
+      const role = await loadRole(config.role)
+      if (role) parts.push(buildRolePrompt(role))
+    } catch { /* non-fatal */ }
+  }
 
   // Layer 1: Base context
   try {
@@ -435,6 +444,12 @@ async function* executeLoop(
       }
     }
 
+    // Always persist the assistant response to the conversation history.
+    // This must happen BEFORE the stop_reason check — otherwise text-only
+    // responses (stop_reason = 'end_turn') are lost on session reload.
+    // Fix for AGT-7: "old chat only shows user messages, not agent replies"
+    session.messages.push({ role: 'assistant', content: response.content })
+
     // If no tool use — pause for input (turn_based) or complete (semi_auto + full_auto headless)
     if (response.stop_reason !== 'tool_use') {
       if (session.autonomyMode === 'turn_based') {
@@ -450,8 +465,7 @@ async function* executeLoop(
       break
     }
 
-    // Process tool calls
-    session.messages.push({ role: 'assistant', content: response.content })
+    // Process tool calls (assistant message already pushed above)
 
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     const pendingApprovals: PendingApproval[] = []
