@@ -5,6 +5,7 @@ import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import type { ParsedAgentConfig } from '../parse/route'
 import { getAccountForUser } from '@/lib/db/accounts'
+import { generateAgentInstructions } from '@/lib/agents/generate-instructions'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     let accountId: string | null = null
+    let accountName = 'Your Gym'
 
     if (!isDemo) {
       // Get gym for this user
@@ -25,21 +27,72 @@ export async function POST(req: NextRequest) {
 
       if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
       accountId = account.id
+      accountName = (account as any).account_name || (account as any).gym_name || (account as any).name || 'Your Gym'
+    }
+
+    // Auto-generate personalized instructions if system_prompt is empty
+    if (!config.system_prompt?.trim() && config.name && config.skill_type) {
+      try {
+        config.system_prompt = await generateAgentInstructions({
+          agentName: config.name,
+          description: config.description || '',
+          skillType: config.skill_type,
+          accountName,
+        })
+      } catch { /* non-critical — deploy proceeds with null prompt */ }
     }
 
     // Create agent record
-    // For real accounts: skill_type must be unique per account — dedupe with timestamp if collision
+    // For real accounts: if an agent with the same skill_type already exists,
+    // update it instead of creating a duplicate
     let skillType = config.skill_type
     if (!isDemo && accountId) {
       const { data: existing } = await supabaseAdmin
         .from('agents')
-        .select('id')
+        .select('id, name')
         .eq('account_id', accountId)
         .eq('skill_type', skillType)
         .single()
 
       if (existing) {
-        skillType = `${config.skill_type}_${Date.now()}`
+        // Update existing agent instead of creating a duplicate
+        await supabaseAdmin
+          .from('agents')
+          .update({
+            name: config.name,
+            description: config.description,
+            system_prompt: config.system_prompt,
+            trigger_mode: config.trigger_mode,
+            trigger_event: config.trigger_event,
+            cron_schedule: config.cron_schedule,
+            action_type: config.action_type,
+            data_sources: config.data_sources,
+            is_active: true,
+          })
+          .eq('id', existing.id)
+
+        // Update or create automation
+        if (config.trigger_mode === 'cron' || config.trigger_mode === 'both') {
+          await supabaseAdmin
+            .from('agent_automations')
+            .upsert({
+              agent_id: existing.id,
+              account_id: accountId,
+              trigger_type: 'cron',
+              cron_schedule: config.cron_schedule ?? 'daily',
+              run_hour: (config as any).run_hour ?? 9,
+              is_active: true,
+            }, { onConflict: 'agent_id,trigger_type' })
+        }
+
+        return NextResponse.json({
+          success: true,
+          agent_id: existing.id,
+          name: config.name,
+          trigger_mode: config.trigger_mode,
+          trigger_event: config.trigger_event,
+          updated: true,
+        })
       }
     }
 

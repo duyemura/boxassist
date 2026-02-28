@@ -21,6 +21,7 @@ interface Agent {
 interface AgentEditorProps {
   agent: Agent | null   // null = create new
   isDemo: boolean
+  accountName?: string
   onBack: () => void
   onSaved: () => void
   onDeleted: () => void
@@ -42,7 +43,7 @@ function hourLabel(h: number): string {
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: i, label: hourLabel(i) }))
 
-export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted }: AgentEditorProps) {
+export default function AgentEditor({ agent, isDemo, accountName: propAccountName, onBack, onSaved, onDeleted }: AgentEditorProps) {
   const isNew = !agent
 
   const [name, setName] = useState(agent?.name ?? '')
@@ -57,6 +58,8 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [autoGenerating, setAutoGenerating] = useState(false)
+
   useEffect(() => {
     if (!agent) return
     setName(agent.name ?? '')
@@ -67,6 +70,27 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     setSystemPrompt(agent.system_prompt ?? '')
     setSaved(false)
     setError(null)
+
+    // Auto-generate instructions for existing agents with blank prompts
+    if (agent.id && !agent.system_prompt?.trim() && agent.name && agent.skill_type) {
+      setAutoGenerating(true)
+      fetch('/api/setup/generate-instructions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentType: agent.skill_type,
+          agentName: agent.name,
+          accountName: propAccountName || '',
+          description: agent.description || '',
+        }),
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.instructions) setSystemPrompt(data.instructions)
+        })
+        .catch(() => {})
+        .finally(() => setAutoGenerating(false))
+    }
   }, [agent?.id])
 
   const handleSave = async () => {
@@ -178,6 +202,12 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
       <div className="flex-1 px-6 py-6 space-y-6 max-w-2xl">
 
         {/* Name + description + AI prompt (shared builder) */}
+        {autoGenerating && (
+          <div className="flex items-center gap-2 px-3 py-2 border border-blue-100" style={{ backgroundColor: '#F0F6FF' }}>
+            <span className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#0063FF', borderTopColor: 'transparent' }} />
+            <p className="text-xs" style={{ color: '#0063FF' }}>Generating personalized instructions…</p>
+          </div>
+        )}
         <AgentPromptBuilder
           name={name}
           description={description}
