@@ -184,6 +184,25 @@ npm run test:coverage     # Vitest with coverage report
 ### Skills
 - `tdd-guide` skill installed — use for TDD workflow guidance
 - `playwright-e2e-testing` skill installed — use for Playwright patterns and best practices
+- `readme-maintenance` skill installed — use when deciding whether/how to update README.md
+
+## README Maintenance
+
+After shipping work, ask: **does README.md still accurately describe the project?**
+
+Update it when:
+- A new major feature ships (new section of the product, new agent capability, new integration type)
+- The tech stack changes (new dependency, service swap, model version bump)
+- New environment variables are added or removed
+- The project structure changes meaningfully (new top-level directories, major file moves)
+- A section is rewritten or removed entirely
+
+Don't update it for:
+- Bug fixes, perf improvements, or small UI tweaks
+- Internal refactors that don't change observable behaviour
+- Adding tests
+
+**Patch only the affected sections** — don't rewrite the whole README unless asked. Use the `readme-maintenance` skill for guidance on what to check.
 
 ## Environment Variables
 
