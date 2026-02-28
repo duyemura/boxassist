@@ -211,6 +211,15 @@ function DashboardContent() {
     }
   }, [isSandboxDemo, data])
 
+  // Default chat to GM agent once data loads — must be before any early returns
+  useEffect(() => {
+    if (!data || isDemo || chatSession) return
+    const agents: any[] = data?.agents ?? []
+    const gm = agents.find((a: any) => a.skill_type === 'gm')
+    if (gm) setChatSession({ agentId: gm.id, agentName: gm.name, startedAt: Date.now() })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
   // Demo idle timeout
   useEffect(() => {
     if (!isSandboxDemo && !isDemoParam) return
@@ -355,15 +364,6 @@ function DashboardContent() {
     pending_count: a.pending_count ?? 0,
     next_run_at: a.next_run_at ?? null,
   }))
-
-  // Default chat to GM agent once data is loaded
-  const gmAgent = agentsWithStats.find((a: any) => a.skill_type === 'gm')
-  useEffect(() => {
-    if (gmAgent && !chatSession && !isDemo) {
-      setChatSession({ agentId: gmAgent.id, agentName: gmAgent.name, startedAt: Date.now() })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gmAgent?.id])
 
   // Build de-duped, non-dismissed action list
   const allActions: ActionCard[] = [
