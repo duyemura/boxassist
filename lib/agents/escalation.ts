@@ -1,13 +1,14 @@
 /**
- * Escalation — handles handoff from Front Desk → GM.
+ * Conversation handoff — generic role-to-role routing.
  *
- * When the Front Desk agent encounters a situation beyond its authority
- * (cancellation, refund, complaint, etc.), it escalates to the GM.
+ * Handles any role transition: Front Desk → GM, GM → Sales Agent, etc.
+ * The caller specifies the target role; this module handles:
+ *   1. Reassigning the conversation to the target role
+ *   2. Starting a session for the target role with full context
+ *   3. Returning session events for the caller to consume
  *
- * This module:
- *   1. Reassigns the conversation to the GM role
- *   2. Starts a GM session with full conversation context + escalation reason
- *   3. Returns session events for the caller to consume
+ * `escalateToGM()` is a convenience wrapper that calls `handoffConversation()`
+ * with targetRole='gm' for backward compatibility.
  */
 
 import { startSession } from './session-runtime'
@@ -17,42 +18,43 @@ import {
   reassignConversation,
   linkSession,
 } from '../db/conversations'
-import type { SessionEvent } from './tools/types'
+import type { SessionEvent, AutonomyMode } from './tools/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface EscalationConfig {
+export interface HandoffConfig {
   /** PushPress credentials */
   apiKey: string
   companyId: string
-  /** Max turns for the GM session (default 15) */
+  /** Max turns for the target session (default 15) */
   maxTurns?: number
   /** Budget in cents (default 75) */
   budgetCents?: number
+  /** Tool groups for the target role (default: data, conversation, action, learning) */
+  tools?: string[]
+  /** Autonomy mode for the target role (default: semi_auto) */
+  autonomyMode?: AutonomyMode
 }
 
-export interface EscalationResult {
-  conversationId: string
-  previousRole: string
-  newRole: string
-  reason: string
-}
+/** @deprecated Use HandoffConfig */
+export type EscalationConfig = HandoffConfig
 
-// ── Escalate to GM ────────────────────────────────────────────────────────────
+// ── Generic handoff ──────────────────────────────────────────────────────────
 
 /**
- * Escalate a conversation from the Front Desk to the GM.
+ * Hand off a conversation to a different role.
  *
  * 1. Loads the conversation and validates it exists
- * 2. Reassigns the conversation to the GM role with status 'escalated'
- * 3. Starts a GM session with conversation history + escalation context
+ * 2. Reassigns the conversation to the target role
+ * 3. Starts a session for the target role with conversation history + context
  * 4. Returns an async generator of SessionEvents
  */
-export async function* escalateToGM(
+export async function* handoffConversation(
   conversationId: string,
+  targetRole: string,
   reason: string,
   context: string | undefined,
-  config: EscalationConfig,
+  config: HandoffConfig,
 ): AsyncGenerator<SessionEvent> {
   // 1. Load conversation
   const conversation = await getConversation(conversationId)
@@ -63,22 +65,22 @@ export async function* escalateToGM(
 
   const previousRole = conversation.assignedRole
 
-  // 2. Reassign to GM
-  await reassignConversation(conversationId, 'gm', 'escalated')
+  // 2. Reassign to target role
+  await reassignConversation(conversationId, targetRole, 'escalated')
 
-  // 3. Load conversation history for GM context
+  // 3. Load conversation history for context
   const history = await getConversationMessages(conversationId, { limit: 50 })
 
-  // 4. Build the goal for the GM session
-  const goal = buildEscalationGoal(conversation, reason, context, history)
+  // 4. Build the goal for the target session
+  const goal = buildHandoffGoal(conversation, targetRole, previousRole, reason, context, history)
 
-  // 5. Start a GM session
+  // 5. Start a session for the target role
   const sessionGen = startSession({
     accountId: conversation.accountId,
     goal,
-    role: 'gm',
-    tools: ['data', 'conversation', 'action', 'learning'],
-    autonomyMode: 'semi_auto',
+    role: targetRole,
+    tools: config.tools ?? ['data', 'conversation', 'action', 'learning'],
+    autonomyMode: config.autonomyMode ?? 'semi_auto',
     maxTurns: config.maxTurns ?? 15,
     budgetCents: config.budgetCents ?? 75,
     apiKey: config.apiKey,
@@ -98,9 +100,23 @@ export async function* escalateToGM(
   }
 }
 
+// ── Convenience wrapper: escalate to GM ──────────────────────────────────────
+
+/**
+ * Escalate a conversation to the GM. Convenience wrapper around handoffConversation.
+ */
+export async function* escalateToGM(
+  conversationId: string,
+  reason: string,
+  context: string | undefined,
+  config: HandoffConfig,
+): AsyncGenerator<SessionEvent> {
+  yield* handoffConversation(conversationId, 'gm', reason, context, config)
+}
+
 // ── Goal builder ──────────────────────────────────────────────────────────────
 
-function buildEscalationGoal(
+function buildHandoffGoal(
   conversation: {
     id: string
     contactName: string | null
@@ -110,19 +126,22 @@ function buildEscalationGoal(
     channel: string
     assignedRole: string
   },
+  targetRole: string,
+  previousRole: string,
   reason: string,
   context: string | undefined,
   history: Array<{ direction: string; channel: string; sender: string | null; content: string; createdAt: string }>,
 ): string {
   const parts: string[] = []
 
-  // Escalation header
-  parts.push(`## Escalation from Front Desk`)
-  parts.push(`The Front Desk has escalated this conversation to you. This needs your judgment.`)
+  // Handoff header
+  const fromLabel = formatRoleLabel(previousRole)
+  parts.push(`## Handoff from ${fromLabel}`)
+  parts.push(`${fromLabel} has handed this conversation to you. This needs your attention.`)
   parts.push('')
 
   // Reason
-  parts.push(`**Escalation Reason:** ${reason}`)
+  parts.push(`**Handoff Reason:** ${reason}`)
   if (context) {
     parts.push(`**Additional Context:** ${context}`)
   }
@@ -142,7 +161,7 @@ function buildEscalationGoal(
     parts.push(`## Full Conversation History (${history.length} messages)`)
     for (const msg of history) {
       const arrow = msg.direction === 'inbound' ? '\u2190' : '\u2192'
-      const label = msg.direction === 'inbound' ? (msg.sender ?? 'Contact') : 'Front Desk'
+      const label = msg.direction === 'inbound' ? (msg.sender ?? 'Contact') : formatRoleLabel(previousRole)
       parts.push(`${arrow} **${label}** (${msg.channel}): ${msg.content.slice(0, 500)}`)
     }
     parts.push('')
@@ -152,10 +171,18 @@ function buildEscalationGoal(
   parts.push(`## Your Task`)
   parts.push(`1. Use \`get_conversation_history\` to review the full thread if needed.`)
   parts.push(`2. Use \`get_member_detail\` to pull this contact's profile, attendance, payments, and account status.`)
-  parts.push(`3. Evaluate the situation with the context of the escalation reason.`)
-  parts.push(`4. Decide on the appropriate action — respond directly, offer a resolution, or escalate to the owner.`)
+  parts.push(`3. Evaluate the situation with the context of the handoff reason.`)
+  parts.push(`4. Decide on the appropriate action — respond directly, offer a resolution, or hand off further.`)
   parts.push(`5. Use \`send_reply\` with conversation_id="${conversation.id}" to communicate with the contact.`)
-  parts.push(`6. If this needs the owner's attention, use \`request_input\` to brief them.`)
+  parts.push(`6. Use \`handoff_conversation\` to route to another role if needed, or \`request_input\` to brief the owner.`)
 
   return parts.join('\n')
+}
+
+/** Format a role slug into a readable label (e.g., 'front_desk' → 'Front Desk') */
+function formatRoleLabel(role: string): string {
+  return role
+    .split(/[-_]/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }

@@ -31,7 +31,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { routeInbound } from '@/lib/channel-router'
 import { handleInbound } from '@/lib/agents/front-desk'
-import { escalateToGM } from '@/lib/agents/escalation'
+import { handoffConversation } from '@/lib/agents/escalation'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 
@@ -90,24 +90,23 @@ export async function POST(req: NextRequest) {
     const events: Array<{ type: string; [key: string]: unknown }> = []
 
     if (route.assignedRole === 'front_desk') {
-      // Run the Front Desk agent
+      // Front Desk has a specialized handler with goal-building logic
       for await (const event of handleInbound(route, { apiKey, companyId })) {
         events.push(event)
         console.log(`[conversation-webhook] event: ${event.type}`)
       }
-    } else if (route.assignedRole === 'gm') {
-      // If conversation was already escalated to GM, run GM session
-      for await (const event of escalateToGM(
+    } else {
+      // All other roles (gm, sales_agent, billing, etc.) use generic handoff
+      for await (const event of handoffConversation(
         route.conversation.id,
-        'Continuing escalated conversation — new inbound message',
+        route.assignedRole,
+        'Continuing conversation — new inbound message',
         undefined,
         { apiKey, companyId },
       )) {
         events.push(event)
-        console.log(`[conversation-webhook] gm-event: ${event.type}`)
+        console.log(`[conversation-webhook] ${route.assignedRole}-event: ${event.type}`)
       }
-    } else {
-      console.log(`[conversation-webhook] no handler for role: ${route.assignedRole}`)
     }
 
     const sessionEvent = events.find(e => e.type === 'session_created') as

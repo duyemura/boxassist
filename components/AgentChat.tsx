@@ -857,14 +857,32 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
                   </span>
                 )}
               </div>
-              {status === 'completed' && agentId && (
-                <button
-                  onClick={startNew}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  New conversation
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {status === 'completed' && agentId && (
+                  <button
+                    onClick={startNew}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    New conversation
+                  </button>
+                )}
+                {sessionId && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Delete this conversation?')) return
+                      await deleteRun(sessionId)
+                      goToList()
+                    }}
+                    className="text-gray-300 hover:text-red-500 transition-colors p-0.5"
+                    title="Delete conversation"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
             {sessionId && (
               <p className="text-[10px] text-gray-400 mt-0.5">

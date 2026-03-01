@@ -64,13 +64,13 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('conversation tool group', () => {
-  it('exports get_conversation_history, send_reply, and escalate_conversation tools', () => {
+  it('exports get_conversation_history, send_reply, and handoff_conversation tools', () => {
     expect(conversationToolGroup.name).toBe('conversation')
     expect(conversationToolGroup.tools).toHaveLength(3)
     expect(conversationToolGroup.tools.map(t => t.name)).toEqual([
       'get_conversation_history',
       'send_reply',
-      'escalate_conversation',
+      'handoff_conversation',
     ])
   })
 })
@@ -201,12 +201,12 @@ describe('send_reply', () => {
   })
 })
 
-describe('escalate_conversation', () => {
-  const tool = conversationToolGroup.tools.find(t => t.name === 'escalate_conversation')!
+describe('handoff_conversation', () => {
+  const tool = conversationToolGroup.tools.find(t => t.name === 'handoff_conversation')!
 
   beforeEach(() => vi.clearAllMocks())
 
-  it('reassigns conversation to gm and returns success', async () => {
+  it('defaults to gm when no target_role specified', async () => {
     mockReassignConversation.mockResolvedValueOnce(undefined)
 
     const result = await tool.execute({
@@ -214,13 +214,28 @@ describe('escalate_conversation', () => {
       reason: 'Client wants to cancel their membership',
     }, makeCtx()) as any
 
-    expect(result.escalated).toBe(true)
+    expect(result.handedOff).toBe(true)
     expect(result.newRole).toBe('gm')
     expect(result.conversationId).toBe('conv-1')
     expect(result.reason).toContain('cancel')
 
-    // Verify reassignConversation was called with correct params
     expect(mockReassignConversation).toHaveBeenCalledWith('conv-1', 'gm', 'escalated')
+  })
+
+  it('hands off to a specified target role', async () => {
+    mockReassignConversation.mockResolvedValueOnce(undefined)
+
+    const result = await tool.execute({
+      conversation_id: 'conv-1',
+      target_role: 'sales_agent',
+      reason: 'Client interested in personal training upsell',
+    }, makeCtx()) as any
+
+    expect(result.handedOff).toBe(true)
+    expect(result.newRole).toBe('sales_agent')
+    expect(result.conversationId).toBe('conv-1')
+
+    expect(mockReassignConversation).toHaveBeenCalledWith('conv-1', 'sales_agent', 'escalated')
   })
 
   it('returns error on DB failure', async () => {
@@ -231,7 +246,7 @@ describe('escalate_conversation', () => {
       reason: 'test',
     }, makeCtx()) as any
 
-    expect(result.error).toContain('Failed to escalate')
+    expect(result.error).toContain('Failed to hand off')
     expect(result.error).toContain('DB error')
   })
 

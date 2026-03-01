@@ -18,7 +18,7 @@ vi.mock('../supabase', () => ({
 }))
 
 import { supabaseAdmin } from '../supabase'
-import { escalateToGM } from '../agents/escalation'
+import { escalateToGM, handoffConversation } from '../agents/escalation'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ describe('escalateToGM', () => {
     expect(events).toHaveLength(3)
   })
 
-  it('includes escalation reason in the goal', async () => {
+  it('includes handoff reason in the goal', async () => {
     vi.mocked(supabaseAdmin.from)
       .mockReturnValueOnce(makeChain(makeConvRow()) as any)
       .mockReturnValueOnce(makeChain(null) as any)
@@ -144,7 +144,7 @@ describe('escalateToGM', () => {
     }
 
     const goalArg = (mockStartSession.mock.calls[0][0] as any).goal
-    expect(goalArg).toContain('Escalation from Front Desk')
+    expect(goalArg).toContain('Handoff from Front Desk')
     expect(goalArg).toContain('Client wants a refund')
     expect(goalArg).toContain('Long-time member, 2 years')
     expect(goalArg).toContain('conv-1')
@@ -272,5 +272,120 @@ describe('escalateToGM', () => {
     expect(goalArg).toContain('alex@example.com')
     expect(goalArg).toContain('+15551234567')
     expect(goalArg).toContain('send_reply')
+  })
+})
+
+describe('handoffConversation', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('hands off to any target role', async () => {
+    vi.mocked(supabaseAdmin.from)
+      .mockReturnValueOnce(makeChain(makeConvRow()) as any)
+      .mockReturnValueOnce(makeChain(null) as any)   // reassignConversation
+      .mockReturnValueOnce(makeChain([]) as any)      // getConversationMessages
+      .mockReturnValueOnce(makeChain(null) as any)    // linkSession
+
+    mockStartSession.mockReturnValue(
+      fakeSessionGenerator([
+        { type: 'session_created', sessionId: 'sales-sess-1' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    const events = []
+    for await (const event of handoffConversation('conv-1', 'sales_agent', 'Upsell opportunity', undefined, defaultConfig)) {
+      events.push(event)
+    }
+
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acct-1',
+        role: 'sales_agent',
+        tools: ['data', 'conversation', 'action', 'learning'],
+        autonomyMode: 'semi_auto',
+        createdBy: 'event',
+      }),
+    )
+
+    expect(events).toHaveLength(2)
+  })
+
+  it('uses custom tools and autonomyMode from config', async () => {
+    vi.mocked(supabaseAdmin.from)
+      .mockReturnValueOnce(makeChain(makeConvRow()) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+      .mockReturnValueOnce(makeChain([]) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+
+    mockStartSession.mockReturnValue(
+      fakeSessionGenerator([
+        { type: 'session_created', sessionId: 'custom-sess-1' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    for await (const _ of handoffConversation('conv-1', 'billing', 'Payment issue', undefined, {
+      apiKey: 'key',
+      companyId: 'co',
+      tools: ['data', 'conversation'],
+      autonomyMode: 'full_auto',
+    })) {
+      // consume
+    }
+
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'billing',
+        tools: ['data', 'conversation'],
+        autonomyMode: 'full_auto',
+      }),
+    )
+  })
+
+  it('includes source role label in goal', async () => {
+    vi.mocked(supabaseAdmin.from)
+      .mockReturnValueOnce(makeChain(makeConvRow({ assigned_role: 'gm' })) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+      .mockReturnValueOnce(makeChain([]) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+
+    mockStartSession.mockReturnValue(
+      fakeSessionGenerator([
+        { type: 'session_created', sessionId: 'sales-sess-2' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    for await (const _ of handoffConversation('conv-1', 'sales_agent', 'Upsell opportunity', undefined, defaultConfig)) {
+      // consume
+    }
+
+    const goalArg = (mockStartSession.mock.calls[0][0] as any).goal
+    expect(goalArg).toContain('Handoff from Gm')
+    expect(goalArg).toContain('Upsell opportunity')
+  })
+
+  it('escalateToGM delegates to handoffConversation with gm role', async () => {
+    vi.mocked(supabaseAdmin.from)
+      .mockReturnValueOnce(makeChain(makeConvRow()) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+      .mockReturnValueOnce(makeChain([]) as any)
+      .mockReturnValueOnce(makeChain(null) as any)
+
+    mockStartSession.mockReturnValue(
+      fakeSessionGenerator([
+        { type: 'session_created', sessionId: 'gm-delegate-1' },
+        { type: 'done', summary: 'Done' },
+      ]),
+    )
+
+    for await (const _ of escalateToGM('conv-1', 'test', undefined, defaultConfig)) {
+      // consume
+    }
+
+    // Should have started a gm session
+    expect(mockStartSession).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'gm' }),
+    )
   })
 })

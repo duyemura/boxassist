@@ -256,36 +256,37 @@ async function sendSmsReply(
   return { messageId: msg.id, status: 'queued' }
 }
 
-// ── escalate_conversation ─────────────────────────────────────────────
+// ── handoff_conversation ──────────────────────────────────────────────
 
-const escalateConversation: AgentTool = {
-  name: 'escalate_conversation',
-  description: 'Escalate a conversation to the GM. Use this when the situation is beyond your authority — cancellation requests, refund disputes, complaints about staff, legal mentions, or anything you are unsure about. The GM will pick up the conversation with full history.',
+const handoffConversation: AgentTool = {
+  name: 'handoff_conversation',
+  description: 'Hand off a conversation to another role. Use this when the situation needs a different agent — escalate to "gm" for cancellations/refunds/complaints, assign to "sales_agent" for upsells, etc. The target role picks up the conversation with full history.',
   input_schema: {
     type: 'object' as const,
     properties: {
-      conversation_id: { type: 'string', description: 'Conversation ID to escalate.' },
-      reason: { type: 'string', description: 'Why you are escalating — be specific about what triggered it and any relevant context.' },
+      conversation_id: { type: 'string', description: 'Conversation ID to hand off.' },
+      target_role: { type: 'string', description: 'Role to hand off to (e.g., "gm", "sales_agent", "billing"). Defaults to "gm".' },
+      reason: { type: 'string', description: 'Why you are handing off — be specific about what triggered it and any relevant context.' },
     },
     required: ['conversation_id', 'reason'],
   },
   requiresApproval: false,
   async execute(input: Record<string, unknown>) {
     const conversationId = input.conversation_id as string
+    const targetRole = (input.target_role as string) ?? 'gm'
     const reason = input.reason as string
 
     try {
-      // Reassign conversation to GM with escalated status
-      await reassignConversation(conversationId, 'gm', 'escalated')
+      await reassignConversation(conversationId, targetRole, 'escalated')
 
       return {
-        escalated: true,
+        handedOff: true,
         conversationId,
-        newRole: 'gm',
+        newRole: targetRole,
         reason,
       }
     } catch (err: any) {
-      return { error: `Failed to escalate: ${err.message}` }
+      return { error: `Failed to hand off: ${err.message}` }
     }
   },
 }
@@ -294,5 +295,5 @@ const escalateConversation: AgentTool = {
 
 export const conversationToolGroup: ToolGroup = {
   name: 'conversation',
-  tools: [getConversationHistory, sendReply, escalateConversation],
+  tools: [getConversationHistory, sendReply, handoffConversation],
 }

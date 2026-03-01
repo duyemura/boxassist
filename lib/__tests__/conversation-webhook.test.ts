@@ -10,13 +10,13 @@ import { NextRequest } from 'next/server'
 const {
   mockRouteInbound,
   mockHandleInbound,
-  mockEscalateToGM,
+  mockHandoffConversation,
   mockSupabaseFrom,
   mockDecrypt,
 } = vi.hoisted(() => ({
   mockRouteInbound: vi.fn(),
   mockHandleInbound: vi.fn(),
-  mockEscalateToGM: vi.fn(),
+  mockHandoffConversation: vi.fn(),
   mockSupabaseFrom: vi.fn(),
   mockDecrypt: vi.fn((val: string) => `decrypted_${val}`),
 }))
@@ -32,7 +32,7 @@ vi.mock('@/lib/agents/front-desk', () => ({
 }))
 
 vi.mock('@/lib/agents/escalation', () => ({
-  escalateToGM: mockEscalateToGM,
+  handoffConversation: mockHandoffConversation,
 }))
 
 vi.mock('@/lib/supabase', () => ({
@@ -214,7 +214,7 @@ describe('POST /api/webhooks/conversation', () => {
       makeRouteResult({ assignedRole: 'gm' }),
     )
 
-    mockEscalateToGM.mockReturnValueOnce(
+    mockHandoffConversation.mockReturnValueOnce(
       fakeEvents([
         { type: 'session_created', sessionId: 'gm-sess-1' },
         { type: 'done', summary: 'GM handled' },
@@ -229,9 +229,10 @@ describe('POST /api/webhooks/conversation', () => {
     expect(body.sessionId).toBe('gm-sess-1')
     expect(body.eventsProcessed).toBe(2)
 
-    expect(mockEscalateToGM).toHaveBeenCalledWith(
+    expect(mockHandoffConversation).toHaveBeenCalledWith(
       'conv-1',
-      expect.stringContaining('Continuing escalated conversation'),
+      'gm',
+      expect.stringContaining('Continuing conversation'),
       undefined,
       expect.objectContaining({
         apiKey: 'decrypted_encrypted_key',
@@ -240,11 +241,18 @@ describe('POST /api/webhooks/conversation', () => {
     )
   })
 
-  it('handles unknown role gracefully', async () => {
+  it('routes any non-front_desk role through generic handoff', async () => {
     mockSupabaseFrom.mockReturnValueOnce(makeChain(accountRow))
 
     mockRouteInbound.mockResolvedValueOnce(
-      makeRouteResult({ assignedRole: 'sales' }),
+      makeRouteResult({ assignedRole: 'sales_agent' }),
+    )
+
+    mockHandoffConversation.mockReturnValueOnce(
+      fakeEvents([
+        { type: 'session_created', sessionId: 'sales-sess-1' },
+        { type: 'done', summary: 'Sales handled' },
+      ]),
     )
 
     const res = await POST(makeRequest(validBody))
@@ -252,8 +260,16 @@ describe('POST /api/webhooks/conversation', () => {
 
     const body = await res.json()
     expect(body.ok).toBe(true)
-    expect(body.assignedRole).toBe('sales')
-    expect(body.eventsProcessed).toBe(0)
+    expect(body.assignedRole).toBe('sales_agent')
+    expect(body.eventsProcessed).toBe(2)
+
+    expect(mockHandoffConversation).toHaveBeenCalledWith(
+      'conv-1',
+      'sales_agent',
+      expect.stringContaining('Continuing conversation'),
+      undefined,
+      expect.objectContaining({ apiKey: 'decrypted_encrypted_key' }),
+    )
   })
 
   it('handles empty API key gracefully', async () => {
