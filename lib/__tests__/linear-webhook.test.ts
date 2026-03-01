@@ -38,7 +38,7 @@ function makePayload(overrides?: Record<string, any>) {
     updatedFrom: {
       stateId: 'st-triage',
       updatedAt: '2026-02-28T10:00:00.000Z',
-    },
+    } as Record<string, string>,
     ...overrides,
   }
 }
@@ -122,7 +122,7 @@ describe('POST /api/webhooks/linear', () => {
 
   it('skips when there is no state change', async () => {
     const payload = makePayload()
-    delete payload.updatedFrom.stateId
+    payload.updatedFrom = {}
 
     const res = await POST(makeReq(payload))
     const body = await res.json()
