@@ -78,7 +78,28 @@ if (targets.length === 0) {
 
 if (watchMode) {
   console.log(`Watching crons against ${BASE_URL} (Ctrl+C to stop)\n`)
-  // Run all immediately, then schedule
+
+  // Wait for the dev server to be reachable before firing crons
+  async function waitForServer(maxWaitMs = 30_000) {
+    const start = Date.now()
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        await fetch(BASE_URL, { method: 'HEAD' })
+        return true
+      } catch {
+        await new Promise(r => setTimeout(r, 500))
+      }
+    }
+    return false
+  }
+
+  const ready = await waitForServer()
+  if (!ready) {
+    console.error(`Server not reachable at ${BASE_URL} after 30s — starting crons anyway\n`)
+  } else {
+    console.log(`Server ready — starting crons\n`)
+  }
+
   for (const cron of targets) {
     runCron(cron)
     setInterval(() => runCron(cron), cron.intervalMs)
