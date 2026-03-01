@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/cron/extract-memories
+ * GET|POST /api/cron/extract-memories
  *
  * Daily cron: scans recent conversations across all accounts and extracts
  * durable memory candidates using Haiku. Writes results to improvement_suggestions
@@ -22,7 +22,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { extractMemoriesFromConversation, consolidateWithExisting } from '@/lib/memory-extractor'
 import { getAccountMemories } from '@/lib/db/memories'
 
-export async function POST(req: NextRequest) {
+async function handler(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -145,3 +145,5 @@ export async function POST(req: NextRequest) {
   )
   return NextResponse.json({ ok: true, accountsProcessed, totalExtracted })
 }
+
+export { handler as GET, handler as POST }
