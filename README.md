@@ -80,7 +80,7 @@ Visitor enters name + email → becomes the first member card → real email del
 | Search | Serper (Google results for web_search tool) |
 | Payments | Stripe |
 | Deployment | Vercel — push to `main` → auto-deploy |
-| Tests | Vitest (688 tests, 46 files) + Playwright (E2E) |
+| Tests | Vitest (884 tests, 61 files) + Playwright (E2E) |
 
 AI model constants are centralized in `lib/models.ts` — never hardcode model strings.
 
@@ -124,7 +124,7 @@ lib/
   reply-agent.ts        # Inbound reply evaluation
   workflow-runner.ts    # Workflow state machine
   models.ts             # AI model constants (SONNET, HAIKU)
-  __tests__/            # Vitest tests (688 across 46 files)
+  __tests__/            # Vitest tests (884 across 61 files)
 
 docs/
   AI-NATIVE-ARCHITECTURE.md   # Core design doc — read before adding domain logic
@@ -150,19 +150,52 @@ npm run dev                         # → http://localhost:3000
 
 **Never run `npm run dev` in CI or automated contexts.** Use `npm run build` to validate.
 
+### Full Local Dev (webhooks + crons)
+
+Vercel crons are disabled during development. Everything runs locally:
+
+```bash
+# Terminal 1 — start ngrok tunnel
+ngrok http 3000
+
+# Terminal 2 — sync webhook URLs to your ngrok tunnel
+npm run dev:sync             # updates Resend + Linear webhooks to ngrok URL
+
+# Terminal 3 — dev server + cron runner
+npm run dev:local            # starts Next.js dev server + cron watcher in parallel
+```
+
+`dev:sync` reads the active ngrok URL from `localhost:4040`, updates `NEXT_PUBLIC_APP_URL` in `.env.local`, and patches Resend + Linear webhook URLs via their APIs.
+
+`dev:local` runs `npm run dev` and `npm run cron:watch` together — the dev server handles requests while the cron runner fires all 7 cron jobs on their schedules.
+
+### Restore Production
+
+When you're ready to go live:
+
+```bash
+npm run prod:enable          # writes vercel.json with crons, resets webhook URLs to production
+git add vercel.json && git commit -m "chore: enable production crons"
+git push
+```
+
+`prod:enable` writes `vercel.json` with all cron schedules, sets `NEXT_PUBLIC_APP_URL` back to the production URL, and updates Resend + Linear webhooks to point at production.
+
 ### Commands
 
 ```bash
 npm run dev           # dev server → localhost:3000
+npm run dev:local     # dev server + cron watcher (use with ngrok)
+npm run dev:sync      # sync Resend + Linear webhooks to ngrok URL
 npm run build         # production build (use this to validate changes)
-npm run test          # vitest run (all 688 tests)
+npm run test          # vitest run (all 884 tests)
 npm run test:watch    # vitest watch mode
 npm run test:e2e      # Playwright E2E (headless)
 npm run test:coverage # coverage report (target: 80%+)
 npm run lint          # eslint
 npm run cron          # trigger all cron jobs once locally
 npm run cron:watch    # run crons on their schedules
-npm run dev:sync      # re-sync ngrok URL after new tunnel session
+npm run prod:enable   # restore production config (vercel.json + webhooks)
 ```
 
 ### Environment Variables
