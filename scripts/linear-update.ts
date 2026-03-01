@@ -36,10 +36,8 @@ async function main() {
   // Resolve identifier (AGT-4) to UUID if needed
   let issueId = issueIdOrIdentifier
   if (issueIdOrIdentifier.match(/^[A-Z]+-\d+$/)) {
-    const issues = await client.issues({
-      filter: { identifier: { eq: issueIdOrIdentifier } } as any,
-    })
-    const issue = issues.nodes[0]
+    const results = await client.searchIssues(issueIdOrIdentifier)
+    const issue = results.nodes.find(i => i.identifier === issueIdOrIdentifier)
     if (!issue) {
       console.error(`Issue ${issueIdOrIdentifier} not found`)
       process.exit(1)
