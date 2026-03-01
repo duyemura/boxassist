@@ -202,6 +202,9 @@ async function sendEmailReply(
     },
     issuedByAgent: 'front_desk',
     status: 'pending',
+    attempts: 0,
+    maxAttempts: 3,
+    nextAttemptAt: new Date().toISOString(),
   })
 
   return { messageId: msg.id, status: 'queued' }
@@ -251,6 +254,9 @@ async function sendSmsReply(
     },
     issuedByAgent: 'front_desk',
     status: 'pending',
+    attempts: 0,
+    maxAttempts: 3,
+    nextAttemptAt: new Date().toISOString(),
   })
 
   return { messageId: msg.id, status: 'queued' }
