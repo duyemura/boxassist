@@ -14,6 +14,8 @@ triggers:
 
 # Linear Feature Ticket Writing
 
+> **Full ticket lifecycle:** See `docs/TICKET-PIPELINE.md` for how all ticket types (bugs, features, suggestions, feedback) flow through the system.
+
 Write feature tickets that clearly separate the problem from the solution, define scope boundaries, and give the implementer everything they need to build the right thing.
 
 **IMPORTANT: Feature tickets are NOT part of the auto-fix pipeline.** Features require deeper thinking, research, competitive analysis, design planning, and architectural consideration. They are written for humans to evaluate, prioritize, plan, and implement deliberately. Never auto-complete, auto-assign, or auto-implement feature tickets.
