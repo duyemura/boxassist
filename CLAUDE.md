@@ -79,6 +79,7 @@ No step in this chain uses hardcoded scoring formulas, task type enums, or domai
 - **`docs/AI-NATIVE-ARCHITECTURE.md`** — Full design doc with examples, migration roadmap, new code checklist
 - **`docs/SELF_IMPROVING_SYSTEM.md`** — How the system learns from outcomes and gets smarter per business
 - **`docs/AGENT-ROLES.md`** — Role-based agent architecture (read before building any new agent)
+- **`docs/TICKET-PIPELINE.md`** — Bug/feature ticket lifecycle, headless fix process, Linear integration. **Read before fixing any bug.**
 
 ---
 
@@ -194,6 +195,17 @@ WORKFLOWS.md          # Workflow engine design doc
 - Text: use `text-xs`, `text-sm`, `text-[10px]` — never `text-[11px]`
 - Micro-labels: `text-[10px] font-semibold tracking-widest uppercase text-gray-400`
 - Focus: `focus:outline-none focus:border-blue-400` (no `focus:ring`)
+
+## Bug Fixes — Headless Process
+
+**When fixing a bug, follow `docs/TICKET-PIPELINE.md` without asking questions.**
+
+Key rules:
+- **Red-green-PR cycle:** Failing test first, then fix, then all tests pass, then branch + PR
+- **No questions:** Don't ask "should I?" or "want me to also?". Pick the simpler approach and execute.
+- **Document on the ticket:** Use `documentFixProgress()` at each stage (red, green, pr)
+- **Max 5 files** per fix. More → label `needs-human` and stop.
+- **Never touch** auth, migrations, env vars, or billing without being asked.
 
 ## Testing — MANDATORY
 
