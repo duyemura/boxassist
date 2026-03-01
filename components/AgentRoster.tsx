@@ -87,12 +87,12 @@ function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete, onChat }: {
 
   const handleDelete = async () => {
     if (isDemo) return
-    if (!confirm(`Delete "${agent.name}"? This cannot be undone.`)) return
     try {
-      await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
+      if (!res.ok) return
       onDelete?.(agent.id)
     } catch {
-      // silent
+      // network error — don't update client state
     }
   }
 
