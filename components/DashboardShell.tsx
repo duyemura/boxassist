@@ -57,7 +57,7 @@ export default function DashboardShell({ children, activeSection = 'agents' }: D
       onSlidePanelClose={() => {}}
       activeSection={activeSection as any}
       onSectionChange={(section) => {
-        if (section === 'agents') router.push('/dashboard')
+        if (section === 'gm') router.push('/dashboard')
         if ((section as string) === 'members') router.push('/dashboard/members')
         if (section === 'settings') router.push('/dashboard')
       }}

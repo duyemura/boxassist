@@ -162,7 +162,7 @@ describe('send_reply', () => {
   })
 
   it('requires approval in semi_auto mode', () => {
-    const fn = tool.requiresApproval as Function
+    const fn = tool.requiresApproval as (...args: unknown[]) => boolean
     expect(fn({}, makeCtx({ autonomyMode: 'semi_auto' }))).toBe(true)
     expect(fn({}, makeCtx({ autonomyMode: 'full_auto' }))).toBe(false)
   })
