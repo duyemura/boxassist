@@ -8,8 +8,6 @@ import ActionSlidePanel from '@/components/ActionSlidePanel'
 import SettingsPanel from '@/components/SettingsPanel'
 import MemoriesPanel from '@/components/MemoriesPanel'
 import GMChat from '@/components/GMChat'
-import AgentList from '@/components/AgentList'
-import AgentEditor from '@/components/AgentEditor'
 import CommandStats from '@/components/CommandStats'
 import AgentRoster from '@/components/AgentRoster'
 import ScheduledRuns from '@/components/ScheduledRuns'
@@ -161,9 +159,8 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  type NavSection = 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'
+  type NavSection = 'gm' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'
   const [activeSection, setActiveSection] = useState<NavSection>('gm')
-  const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
   const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string; startedAt: number } | null>(null)
 
   // Welcome modal for demo — shows once per session
@@ -203,7 +200,7 @@ function DashboardContent() {
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
   // Read section from pathname (works on client only)
-  const VALID_SECTIONS: NavSection[] = ['gm', 'agents', 'memories', 'skills', 'improvements', 'integrations', 'settings']
+  const VALID_SECTIONS: NavSection[] = ['gm', 'memories', 'skills', 'improvements', 'integrations', 'settings']
   function sectionFromPath(): NavSection {
     const match = window.location.pathname.match(/^\/dashboard\/(\w+)/)
     const s = match?.[1] as NavSection | undefined
@@ -472,62 +469,7 @@ function DashboardContent() {
     <>
       {/* Mobile */}
       <div className="md:hidden h-full overflow-y-auto">
-        {activeSection === 'agents'
-          ? (
-            editingAgent !== undefined ? (
-              <AgentEditor
-                agent={editingAgent}
-                isDemo={isDemo}
-                accountName={accountName}
-                onBack={() => setEditingAgent(undefined)}
-                onSaved={async () => {
-                  setEditingAgent(undefined)
-                  const res = await fetch('/api/dashboard')
-                  if (res.ok) setData(await res.json())
-                }}
-                onDeleted={async () => {
-                  setEditingAgent(undefined)
-                  const res = await fetch('/api/dashboard')
-                  if (res.ok) setData(await res.json())
-                }}
-              />
-            ) : (
-              <div>
-                <div className="px-4 py-4 flex items-center justify-between">
-                  <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
-                  {!isDemo && (
-                    <button
-                      onClick={() => setEditingAgent(null)}
-                      className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
-                      style={{ backgroundColor: '#0063FF' }}
-                    >
-                      + New agent
-                    </button>
-                  )}
-                </div>
-                <AgentList
-                  agents={agentsList}
-                  isDemo={isDemo}
-                  onSelect={agent => setEditingAgent(agent)}
-                  onToggle={(skillType, isActive) => {
-                    if (data) {
-                      const updated = (data.agents ?? []).map((a: any) =>
-                        a.skill_type === skillType ? { ...a, is_active: isActive } : a
-                      )
-                      setData({ ...data, agents: updated })
-                    }
-                  }}
-                  onDelete={(agentId) => {
-                    if (data) {
-                      const updated = (data.agents ?? []).filter((a: any) => a.id !== agentId)
-                      setData({ ...data, agents: updated })
-                    }
-                  }}
-                />
-              </div>
-            )
-          )
-          : activeSection === 'settings'
+        {activeSection === 'settings'
           ? <div className="px-4 py-4"><SettingsPanel data={data} isDemo={isDemo} gmailConnected={null} /></div>
           : activeSection === 'memories'
           ? <MemoriesPanel />
@@ -553,65 +495,7 @@ function DashboardContent() {
 
       {/* Desktop */}
       <div className="hidden md:flex flex-col h-full overflow-hidden">
-        {activeSection === 'agents' ? (
-          editingAgent !== undefined ? (
-            <div className="flex flex-col h-full overflow-hidden">
-              <AgentEditor
-                agent={editingAgent}
-                isDemo={isDemo}
-                accountName={accountName}
-                onBack={() => setEditingAgent(undefined)}
-                onSaved={async () => {
-                  setEditingAgent(undefined)
-                  const res = await fetch('/api/dashboard')
-                  if (res.ok) setData(await res.json())
-                }}
-                onDeleted={async () => {
-                  setEditingAgent(undefined)
-                  const res = await fetch('/api/dashboard')
-                  if (res.ok) setData(await res.json())
-                }}
-              />
-            </div>
-          ) : (
-            <div className="overflow-y-auto flex-1">
-              <div className="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">Agents</h1>
-                  <p className="text-xs text-gray-400 mt-0.5">Each agent watches for a specific situation and drafts a response.</p>
-                </div>
-                {!isDemo && (
-                  <button
-                    onClick={() => setEditingAgent(null)}
-                    className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
-                    style={{ backgroundColor: '#0063FF' }}
-                  >
-                    + New agent
-                  </button>
-                )}
-              </div>
-              <AgentList
-                agents={agentsList}
-                isDemo={isDemo}
-                onSelect={agent => setEditingAgent(agent)}
-                onToggle={(skillType, isActive) => {
-                  if (data) {
-                    const updated = (data.agents ?? []).map((a: any) =>
-                      a.skill_type === skillType ? { ...a, is_active: isActive } : a
-                    )
-                    setData({ ...data, agents: updated })
-                  }
-                }}
-                onDelete={(agentId) => {
-                  if (data) {
-                    const updated = (data.agents ?? []).filter((a: any) => a.id !== agentId)
-                    setData({ ...data, agents: updated })
-                  }
-                }}
-              />
-            </div>
-          )
-        ) : activeSection === 'settings' ? (
+        {activeSection === 'settings' ? (
           <div className="overflow-y-auto flex-1">
             <div className="px-6 pt-5 pb-3 border-b border-gray-100">
               <h1 className="text-lg font-semibold text-gray-900">Settings</h1>
@@ -649,7 +533,6 @@ function DashboardContent() {
                 <AgentRoster
                   agents={agentsWithStats}
                   isDemo={isDemo}
-                  onSelect={agent => { setEditingAgent(agent); navigate('agents') }}
                   onToggle={(skillType, isActive) => {
                     if (data) setData({ ...data, agents: (data.agents ?? []).map((a: any) =>
                       a.skill_type === skillType ? { ...a, is_active: isActive } : a
@@ -658,7 +541,6 @@ function DashboardContent() {
                   onDelete={agentId => {
                     if (data) setData({ ...data, agents: (data.agents ?? []).filter((a: any) => a.id !== agentId) })
                   }}
-                  onAddAgent={() => { setEditingAgent(null); navigate('agents') }}
                   onChat={agent => setChatSession({ agentId: agent.id, agentName: agent.name, startedAt: Date.now() })}
                 />
               </div>

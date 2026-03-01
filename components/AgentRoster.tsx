@@ -211,7 +211,7 @@ export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDele
             {activeCount} active
           </span>
         </div>
-        {!isDemo && (
+        {!isDemo && onAddAgent && (
           <button
             onClick={onAddAgent}
             className="text-xs font-medium text-white px-2.5 py-1 transition-opacity hover:opacity-80"
