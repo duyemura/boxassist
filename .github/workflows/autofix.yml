@@ -1,0 +1,90 @@
+name: Autofix
+
+# Triggered by Linear webhook via repository_dispatch
+on:
+  repository_dispatch:
+    types: [autofix]
+
+jobs:
+  fix:
+    name: Auto-fix ${{ github.event.client_payload.identifier }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Fetch investigation from Linear
+        id: investigation
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          npx tsx scripts/fetch-investigation.ts \
+            "${{ github.event.client_payload.identifier }}" \
+            > /tmp/investigation.md
+          echo "fetched=true" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code autofix
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          IDENTIFIER="${{ github.event.client_payload.identifier }}"
+          TITLE="${{ github.event.client_payload.title }}"
+          INVESTIGATION=$(cat /tmp/investigation.md)
+
+          claude -p "$(cat <<PROMPT
+          You are fixing a bug/feature ticket for the GymAgents project.
+
+          ## Ticket: ${IDENTIFIER}
+          **${TITLE}**
+
+          ## AI Investigation
+          ${INVESTIGATION}
+
+          ## Instructions
+          1. Read the investigation above carefully
+          2. Explore the relevant files identified
+          3. Write RED tests that prove the bug exists (or test the new feature)
+          4. Run them to confirm they fail: npm run test
+          5. Fix the code to make the tests pass
+          6. Run the full test suite: npm run test
+          7. If all tests pass, create a branch and commit:
+             - Branch: fix/${IDENTIFIER}
+             - Commit message must include "Closes ${IDENTIFIER}"
+          8. Push the branch and create a PR using gh CLI
+
+          Use npm run test to validate. Do NOT modify tests to make them pass —
+          fix the actual code. If you cannot fix it, document what you found.
+          PROMPT
+          )" --allowedTools "Bash,Read,Write,Edit,Glob,Grep" \
+             --max-turns 30
+
+      - name: Report result to Linear
+        if: always()
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IDENTIFIER="${{ github.event.client_payload.identifier }}"
+
+          # Check if a PR was created
+          PR_URL=$(gh pr list --head "fix/${IDENTIFIER}" --json url --jq '.[0].url' 2>/dev/null || echo "")
+
+          if [ -n "$PR_URL" ]; then
+            npx tsx scripts/linear-update.ts comment "$IDENTIFIER" \
+              "## Autofix PR Created\n\n**PR:** ${PR_URL}\n\nClaude Code created a fix automatically. Awaiting CI and review."
+          else
+            npx tsx scripts/linear-update.ts comment "$IDENTIFIER" \
+              "## Autofix attempted\n\nClaude Code ran but could not produce a working fix. Manual investigation needed."
+          fi
