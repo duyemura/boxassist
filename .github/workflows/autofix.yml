@@ -7,9 +7,16 @@ on:
 
 jobs:
   fix:
-    name: Auto-fix ${{ github.event.client_payload.identifier }}
+    name: "Auto-fix ${{ github.event.client_payload.identifier }} (attempt #${{ github.event.client_payload.attempt || 1 }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    env:
+      IDENTIFIER: ${{ github.event.client_payload.identifier }}
+      ATTEMPT: ${{ github.event.client_payload.attempt || 1 }}
+      RISK_LEVEL: ${{ github.event.client_payload.risk_level || 'safe' }}
+      AUTOMERGE: ${{ github.event.client_payload.automerge || 'true' }}
+      BUDGET_REMAINING: ${{ github.event.client_payload.budget_remaining_cents || 200 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,51 +31,133 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      # ── Step 1: Fetch investigation + full comment history from Linear ──
       - name: Fetch investigation from Linear
         id: investigation
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
-          npx tsx scripts/fetch-investigation.ts \
-            "${{ github.event.client_payload.identifier }}" \
-            > /tmp/investigation.md
+          npx tsx scripts/fetch-investigation.ts "$IDENTIFIER" > /tmp/investigation.md
           echo "fetched=true" >> $GITHUB_OUTPUT
 
+      # ── Step 2: Build compact context from investigation + actual files ──
+      - name: Build fix context
+        id: context
+        run: |
+          # Capture stdout (which includes RISK_LEVEL=) separately from the file output
+          npx tsx scripts/build-fix-context.ts /tmp/investigation.md /tmp/fix-context.md > /tmp/build-output.txt 2>&1
+          cat /tmp/build-output.txt
+          # Extract risk level from script stdout
+          DETECTED_RISK=$(grep "RISK_LEVEL=" /tmp/build-output.txt 2>/dev/null | tail -1 | cut -d= -f2 || echo "")
+          if [ -n "$DETECTED_RISK" ]; then
+            echo "risk_level=$DETECTED_RISK" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Step 3: Run Claude Code with directive prompt (no exploration) ──
       - name: Run Claude Code autofix
+        id: claude
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          IDENTIFIER="${{ github.event.client_payload.identifier }}"
           TITLE="${{ github.event.client_payload.title }}"
-          INVESTIGATION=$(cat /tmp/investigation.md)
+          CONTEXT=$(cat /tmp/fix-context.md)
 
           claude -p "$(cat <<PROMPT
-          You are fixing a bug/feature ticket for the GymAgents project.
+          You are an autonomous bug-fixing agent. Your job is to fix ticket ${IDENTIFIER}.
 
           ## Ticket: ${IDENTIFIER}
           **${TITLE}**
 
-          ## AI Investigation
-          ${INVESTIGATION}
+          ## Pre-Analyzed Context
+          The following context was assembled from the AI investigation and actual source
+          files. It contains everything you need. DO NOT explore the codebase — the files
+          are already provided below.
 
-          ## Instructions
-          1. Read the investigation above carefully
-          2. Explore the relevant files identified
-          3. Write RED tests that prove the bug exists (or test the new feature)
-          4. Run them to confirm they fail: npm run test
-          5. Fix the code to make the tests pass
-          6. Run the full test suite: npm run test
-          7. If all tests pass, create a branch and commit:
+          ${CONTEXT}
+
+          ## Strict Instructions
+          1. Read the fix approach and target files above — they are already loaded
+          2. Write a RED test that proves the bug exists in the identified test file
+          3. Run it: npm run test -- --reporter=verbose <test_file>
+          4. Fix the code in the target files to make the test pass
+          5. Run the full test suite: npm run test
+          6. If all tests pass, create a branch and commit:
              - Branch: fix/${IDENTIFIER}
-             - Commit message must include "Closes ${IDENTIFIER}"
-          8. Push the branch and create a PR using gh CLI
+             - Commit message: "fix: <description> (${IDENTIFIER})"
+             - Message must include "Closes ${IDENTIFIER}"
+          7. Push the branch and create a PR using gh CLI
+          8. If you CANNOT fix the bug after trying, output exactly:
+             QUESTION_FOR_HUMAN: <your specific question about what you need to know>
 
-          Use npm run test to validate. Do NOT modify tests to make them pass —
-          fix the actual code. If you cannot fix it, document what you found.
+          Rules:
+          - Do NOT modify tests to make them pass — fix the actual code
+          - Do NOT explore files not listed in the context unless absolutely necessary
+          - Maximum 5 files changed. If more needed, output QUESTION_FOR_HUMAN asking for guidance
+          - Be surgical — smallest possible fix
           PROMPT
           )" --dangerously-skip-permissions \
-             --max-turns 50 || true
+             --max-turns 25 2>&1 | tee /tmp/claude-output.txt || true
 
+      # ── Step 4: Post audit log (always runs) ──
+      - name: Post audit log
+        if: always()
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr list --head "fix/${IDENTIFIER}" --json url --jq '.[0].url' 2>/dev/null || echo "")
+
+          if [ -n "$PR_URL" ]; then
+            RESULT="PR created"
+          else
+            RESULT="No PR"
+          fi
+
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          AUDIT=$(cat <<EOF
+          <!-- MACHINE:audit -->
+          ## Autofix Run #${ATTEMPT}
+
+          - **Result:** ${RESULT}
+          - **PR:** ${PR_URL:-none}
+          - **Risk Level:** ${RISK_LEVEL}
+          - **Attempt:** ${ATTEMPT}
+          - **Budget Remaining:** \$$(echo "scale=2; ${BUDGET_REMAINING}/100" | bc)
+          - **Timestamp:** ${TIMESTAMP}
+          EOF
+          )
+
+          npx tsx scripts/linear-update.ts comment "$IDENTIFIER" "$AUDIT"
+
+      # ── Step 5: Handle stuck state (question for human) ──
+      - name: Handle stuck state
+        if: always()
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
+        run: |
+          if [ -f /tmp/claude-output.txt ] && grep -q "QUESTION_FOR_HUMAN:" /tmp/claude-output.txt; then
+            QUESTION=$(grep "QUESTION_FOR_HUMAN:" /tmp/claude-output.txt | head -1 | sed 's/.*QUESTION_FOR_HUMAN:\s*//')
+
+            COMMENT=$(cat <<EOF
+          <!-- MACHINE:question -->
+          ## Question (Attempt #${ATTEMPT})
+
+          ${QUESTION}
+
+          ---
+          _Reply on this ticket with your answer. The system will automatically retry._
+          EOF
+          )
+
+            npx tsx scripts/linear-update.ts comment "$IDENTIFIER" "$COMMENT"
+            npx tsx scripts/linear-update.ts state "$IDENTIFIER" stuck 2>/dev/null || true
+            echo "::notice::Claude Code is stuck — posted question on ${IDENTIFIER}"
+          fi
+
+      # ── Step 6: Report result to Linear ──
       - name: Report result to Linear
         if: always()
         env:
@@ -76,15 +165,29 @@ jobs:
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          IDENTIFIER="${{ github.event.client_payload.identifier }}"
-
-          # Check if a PR was created
           PR_URL=$(gh pr list --head "fix/${IDENTIFIER}" --json url --jq '.[0].url' 2>/dev/null || echo "")
 
           if [ -n "$PR_URL" ]; then
             npx tsx scripts/linear-update.ts comment "$IDENTIFIER" \
-              "## Autofix PR Created\n\n**PR:** ${PR_URL}\n\nClaude Code created a fix automatically. Awaiting CI and review."
-          else
-            npx tsx scripts/linear-update.ts comment "$IDENTIFIER" \
-              "## Autofix attempted\n\nClaude Code ran but could not produce a working fix. Manual investigation needed."
+              "## Autofix PR Created\n\n**PR:** ${PR_URL}\n**Attempt:** ${ATTEMPT}\n\nClaude Code created a fix automatically. Awaiting CI and review."
+          fi
+
+      # ── Step 7: Auto-merge if safe ──
+      - name: Auto-merge if safe
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr list --head "fix/${IDENTIFIER}" --json url --jq '.[0].url' 2>/dev/null || echo "")
+
+          if [ -n "$PR_URL" ]; then
+            EFFECTIVE_RISK="${{ steps.context.outputs.risk_level || env.RISK_LEVEL }}"
+
+            if [ "$AUTOMERGE" = "true" ] && [ "$EFFECTIVE_RISK" = "safe" ]; then
+              echo "::notice::Auto-merge enabled for safe fix — enabling auto-merge on PR"
+              gh pr merge --auto --squash "$PR_URL" || true
+            else
+              echo "::notice::Fix flagged as risky (${EFFECTIVE_RISK}) — skipping auto-merge, needs human review"
+              # Could add a 'needs-review' label here in the future
+            fi
           fi

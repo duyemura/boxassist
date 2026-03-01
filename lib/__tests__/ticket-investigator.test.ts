@@ -4,6 +4,9 @@
  * Tests for the AI-powered ticket investigation agent.
  * After a ticket is created (bug, feature, or suggestion), this module
  * analyzes it and posts a structured investigation comment on Linear.
+ *
+ * Now includes: machine markers (<!-- MACHINE:investigation -->),
+ * structured FIX_BRIEF output, risk assessment, and supplemental context.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -60,6 +63,9 @@ describe('ticket-investigator', () => {
     // Should use HAIKU model
     expect(callArgs.model).toBe('claude-haiku-4-5-20251001')
 
+    // Should use increased max_tokens
+    expect(callArgs.max_tokens).toBe(2000)
+
     // System prompt should contain codebase context
     expect(callArgs.system).toContain('software engineer')
 
@@ -72,7 +78,7 @@ describe('ticket-investigator', () => {
     expect(mockUpdateIssueState).toHaveBeenCalledWith('issue-001', 'backlog')
   })
 
-  it('posts investigation comment on the Linear ticket', async () => {
+  it('posts investigation comment with MACHINE marker', async () => {
     const analysisText = [
       '## Likely Files',
       '- `components/AgentChat.tsx` — chat display component',
@@ -102,16 +108,43 @@ describe('ticket-investigator', () => {
       ticketType: 'bug',
     })
 
-    // Should post comment with investigation header
+    // Should post comment with MACHINE marker
     expect(mockCommentOnIssue).toHaveBeenCalledTimes(1)
     const [issueId, body] = mockCommentOnIssue.mock.calls[0]
     expect(issueId).toBe('issue-001')
+    expect(body).toContain('<!-- MACHINE:investigation -->')
     expect(body).toContain('AI Investigation')
     expect(body).toContain('AgentChat.tsx')
     expect(body).toContain('reconstructMessages()')
 
     // Should transition to backlog after posting investigation
     expect(mockUpdateIssueState).toHaveBeenCalledWith('issue-001', 'backlog')
+  })
+
+  it('includes supplemental context in prompt when provided', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'Updated investigation' }],
+      usage: { input_tokens: 600, output_tokens: 200 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket(
+      {
+        issueId: 'issue-retry-1',
+        issueIdentifier: 'AGT-30',
+        title: '[bug] Dashboard crashes',
+        description: 'Page goes blank',
+        ticketType: 'bug',
+      },
+      'The error only happens when there are no agents configured. Check AgentList.tsx for null checks.',
+    )
+
+    const userMsg = mockCreate.mock.calls[0][0].messages[0].content
+    expect(userMsg).toContain('Additional Context (from human comments or previous attempts)')
+    expect(userMsg).toContain('no agents configured')
+    expect(userMsg).toContain('AgentList.tsx')
   })
 
   it('includes page URL and navigation in the prompt', async () => {
@@ -308,5 +341,76 @@ describe('ticket-investigator', () => {
 
     const callArgs = mockCreate.mock.calls[0][0]
     expect(callArgs.system).toContain('feature request')
+  })
+
+  it('bug prompt requires FIX_BRIEF format', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'test' }],
+      usage: { input_tokens: 400, output_tokens: 100 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket({
+      issueId: 'issue-brief-1',
+      issueIdentifier: 'AGT-24',
+      title: '[bug] Something',
+      description: 'Bug description',
+      ticketType: 'bug',
+    })
+
+    const systemPrompt = mockCreate.mock.calls[0][0].system
+    expect(systemPrompt).toContain('FIX_BRIEF')
+    expect(systemPrompt).toContain('risk_level')
+    expect(systemPrompt).toContain('target_files')
+    expect(systemPrompt).toContain('test_file')
+    expect(systemPrompt).toContain('fix_approach')
+    expect(systemPrompt).toContain('confidence')
+  })
+})
+
+describe('extractRiskLevel', () => {
+  it('extracts safe risk level', async () => {
+    const { extractRiskLevel } = await import('../ticket-investigator')
+    expect(extractRiskLevel('risk_level: safe')).toBe('safe')
+  })
+
+  it('extracts risky risk level', async () => {
+    const { extractRiskLevel } = await import('../ticket-investigator')
+    expect(extractRiskLevel('risk_level: risky')).toBe('risky')
+  })
+
+  it('defaults to risky when not found', async () => {
+    const { extractRiskLevel } = await import('../ticket-investigator')
+    expect(extractRiskLevel('no risk info here')).toBe('risky')
+  })
+
+  it('is case insensitive', async () => {
+    const { extractRiskLevel } = await import('../ticket-investigator')
+    expect(extractRiskLevel('risk_level: Safe')).toBe('safe')
+    expect(extractRiskLevel('risk_level: RISKY')).toBe('risky')
+  })
+})
+
+describe('extractFixBrief', () => {
+  it('extracts FIX_BRIEF YAML block', async () => {
+    const { extractFixBrief } = await import('../ticket-investigator')
+    const text = `Some text
+<!-- FIX_BRIEF
+target_files:
+  - lib/foo.ts
+risk_level: safe
+END_FIX_BRIEF -->
+More text`
+    const brief = extractFixBrief(text)
+    expect(brief).toContain('target_files:')
+    expect(brief).toContain('lib/foo.ts')
+    expect(brief).toContain('risk_level: safe')
+  })
+
+  it('returns null when no FIX_BRIEF found', async () => {
+    const { extractFixBrief } = await import('../ticket-investigator')
+    expect(extractFixBrief('no brief here')).toBeNull()
   })
 })

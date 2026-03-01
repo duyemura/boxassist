@@ -8,6 +8,9 @@
  *
  * Runs asynchronously — ticket creation returns immediately,
  * investigation happens in the background.
+ *
+ * Comments are wrapped in <!-- MACHINE:investigation --> markers so the
+ * autonomous pipeline can distinguish AI comments from human comments.
  */
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -35,40 +38,65 @@ export interface InvestigationInput {
 const CODEBASE_MAP = `## Project Structure (GymAgents)
 
 ### Pages & Components
-- /dashboard → app/dashboard/page.tsx
-  - AgentChat.tsx — Interactive chat with agents. Two views: "list" (past conversations sidebar) and "chat" (active conversation). Loads old sessions via loadSession() → GET /api/agents/runs/{sessionId}
-  - ActionSlidePanel.tsx — Slide-over panel for task approval/dismissal/escalation
-  - AgentList.tsx — Agent cards grid on dashboard
-  - AgentRoster.tsx — Agent roster with stats
-  - MemoriesPanel.tsx — Business memories viewer
-  - CommandStats.tsx — Command execution stats
-  - QuickQueue.tsx — Task queue for pending actions
-  - ScheduledRuns.tsx — Agent schedule display
-- /setup → app/setup/page.tsx — Agent setup wizard (multi-step)
+- /dashboard \u2192 app/dashboard/page.tsx
+  - AgentChat.tsx \u2014 Interactive chat with agents. Two views: "list" (past conversations sidebar) and "chat" (active conversation). Loads old sessions via loadSession() \u2192 GET /api/agents/runs/{sessionId}
+  - ActionSlidePanel.tsx \u2014 Slide-over panel for task approval/dismissal/escalation
+  - AgentList.tsx \u2014 Agent cards grid on dashboard
+  - AgentRoster.tsx \u2014 Agent roster with stats
+  - MemoriesPanel.tsx \u2014 Business memories viewer
+  - CommandStats.tsx \u2014 Command execution stats
+  - QuickQueue.tsx \u2014 Task queue for pending actions
+  - ScheduledRuns.tsx \u2014 Agent schedule display
+- /setup \u2192 app/setup/page.tsx \u2014 Agent setup wizard (multi-step)
 
 ### API Routes
-- /api/agents/chat/route.ts — SSE chat endpoint for interactive agent sessions
-- /api/agents/run/route.ts — Manual agent run trigger
-- /api/agents/[id]/runs/route.ts — List conversation runs for an agent (metadata only)
-- /api/agents/runs/[sessionId]/route.ts — Get full session + reconstructed messages + DELETE endpoint
-- /api/feedback/route.ts — Feedback widget submission
-- /api/dashboard/route.ts — Dashboard data aggregation
-- /api/cron/run-analysis/route.ts — Scheduled analysis cron
-- /api/setup/recommend/route.ts — Agent recommendation engine
-- /api/humanize-message/route.ts — Message humanization via Claude
+- /api/agents/chat/route.ts \u2014 SSE chat endpoint for interactive agent sessions
+- /api/agents/run/route.ts \u2014 Manual agent run trigger
+- /api/agents/[id]/runs/route.ts \u2014 List conversation runs for an agent (metadata only)
+- /api/agents/runs/[sessionId]/route.ts \u2014 Get full session + reconstructed messages + DELETE endpoint
+- /api/feedback/route.ts \u2014 Feedback widget submission
+- /api/dashboard/route.ts \u2014 Dashboard data aggregation
+- /api/cron/run-analysis/route.ts \u2014 Scheduled analysis cron
+- /api/setup/recommend/route.ts \u2014 Agent recommendation engine
+- /api/humanize-message/route.ts \u2014 Message humanization via Claude
+- /api/webhooks/linear/route.ts \u2014 Linear webhook: triggers autofix on backlog transition + comment retry
 
 ### Core Libraries
-- lib/agents/session-runtime.ts — Session engine: startSession, resumeSession, executeLoop. Stores messages as JSONB in agent_sessions table.
-- lib/agents/agent-runtime.ts — Legacy single-call agent runtime (analyzeGymAI)
-- lib/agents/GMAgent.ts — GM Agent class with analyzeGym/analyzeGymAI
-- lib/skill-loader.ts — Skill file loading, semantic matching via YAML front-matter
-- lib/db/memories.ts — Business memory CRUD + prompt injection
-- lib/db/tasks.ts — Task management (createInsightTask, getOpenTasksForGym)
-- lib/db/commands.ts — Command bus (SendEmail, CreateTask, CloseTask, etc.)
-- lib/pushpress-platform.ts — PushPress API connector (ppGet, buildMemberData)
-- lib/reply-agent.ts — Inbound reply handling
-- lib/linear.ts — Linear integration (ticket creation, lifecycle hooks)
-- lib/bug-triage.ts — Stack trace parsing, area classification, auto-fix triage
+- lib/agents/session-runtime.ts \u2014 Session engine: startSession, resumeSession, executeLoop. Stores messages as JSONB in agent_sessions table.
+- lib/agents/agent-runtime.ts \u2014 Legacy single-call agent runtime (analyzeGymAI)
+- lib/agents/GMAgent.ts \u2014 GM Agent class with analyzeGym/analyzeGymAI
+- lib/skill-loader.ts \u2014 Skill file loading, semantic matching via YAML front-matter
+- lib/db/memories.ts \u2014 Business memory CRUD + prompt injection
+- lib/db/tasks.ts \u2014 Task management (createInsightTask, getOpenTasksForGym)
+- lib/db/commands.ts \u2014 Command bus (SendEmail, CreateTask, CloseTask, etc.)
+- lib/pushpress-platform.ts \u2014 PushPress API connector (ppGet, buildMemberData)
+- lib/reply-agent.ts \u2014 Inbound reply handling
+- lib/linear.ts \u2014 Linear integration (ticket creation, lifecycle hooks)
+- lib/bug-triage.ts \u2014 Stack trace parsing, area classification, auto-fix triage
+- lib/channel-router.ts \u2014 Routes inbound messages to conversations + roles
+- lib/ticket-investigator.ts \u2014 AI-powered ticket investigation with structured FIX_BRIEF
+
+### Test Files (map source \u2192 test)
+- lib/agents/session-runtime.ts \u2192 lib/__tests__/session-runtime.test.ts
+- lib/agents/agent-runtime.ts \u2192 lib/__tests__/agent-runtime.test.ts
+- lib/agents/GMAgent.ts \u2192 lib/__tests__/gm-agent.test.ts
+- lib/skill-loader.ts \u2192 lib/__tests__/skill-loader.test.ts
+- lib/db/memories.ts \u2192 lib/__tests__/memories.test.ts
+- lib/db/tasks.ts \u2192 lib/__tests__/tasks.test.ts
+- lib/db/commands.ts \u2192 lib/__tests__/commands.test.ts
+- lib/reply-agent.ts \u2192 lib/__tests__/reply-agent.test.ts
+- lib/linear.ts \u2192 lib/__tests__/linear.test.ts
+- lib/bug-triage.ts \u2192 lib/__tests__/bug-triage.test.ts
+- lib/ticket-investigator.ts \u2192 lib/__tests__/ticket-investigator.test.ts
+- lib/channel-router.ts \u2192 lib/__tests__/channel-router.test.ts
+- app/api/webhooks/linear/route.ts \u2192 lib/__tests__/linear-webhook.test.ts
+- app/api/feedback/route.ts \u2192 lib/__tests__/feedback-api.test.ts
+
+### Mock Patterns (vitest)
+- vi.mock('@anthropic-ai/sdk') \u2014 mock Anthropic client, messages.create returns { content: [{ type: 'text', text }] }
+- vi.mock('../linear') \u2014 mock commentOnIssue, updateIssueState
+- vi.mock('../supabase') \u2014 mock supabase.from().select/insert/update chains
+- vi.stubGlobal('fetch', vi.fn()) \u2014 mock external HTTP calls (GitHub API, etc.)
 
 ### Key Patterns
 - Messages in agent_sessions.messages stored as Claude API format (role + content blocks)
@@ -85,6 +113,7 @@ Your job is to analyze the bug description and identify:
 2. What the probable root cause is
 3. What investigation steps would confirm the diagnosis
 4. A red test sketch (what test would prove the bug exists)
+5. Whether the fix is safe for auto-merge or needs human review
 
 You have a map of the project structure below. Use it to identify relevant files.
 
@@ -92,7 +121,30 @@ ${CODEBASE_MAP}
 
 ## Output Format
 
-Write your investigation as structured markdown with these sections:
+IMPORTANT: You MUST include a FIX_BRIEF block at the very top of your response, before any other content. This structured block is machine-parsed by the autofix pipeline.
+
+` + '```' + `
+<!-- FIX_BRIEF
+target_files:
+  - path/to/file.ts
+  - path/to/other-file.ts
+test_file: lib/__tests__/file.test.ts
+area: Dashboard | API | Agent Runtime | Setup | Cron | Email | General
+fix_approach: >
+  One paragraph describing exactly what needs to change and why.
+red_test_sketch: >
+  it('should do X when Y', async () => { ... })
+confidence: high | medium | low
+risk_level: safe | risky
+risk_reason: null | "touches auth" | "touches billing" | "5+ files" | "migration needed" | etc
+END_FIX_BRIEF -->
+` + '```' + `
+
+Risk assessment rules:
+- "safe" = 1-4 files, no auth/billing/migration changes, well-understood bug
+- "risky" = touches auth, billing, migrations, env vars, 5+ files, or uncertain root cause
+
+Then write the rest of your investigation with these sections:
 
 ### Likely Files
 List the 2-4 files most likely involved, with a brief reason for each.
@@ -133,7 +185,7 @@ Write your analysis as structured markdown with these sections:
 List the 2-5 existing files most relevant to this feature, with a brief reason for each.
 
 ### Implementation Approach
-How to build this feature — what changes to existing code, what new code is needed. Be specific about which components, API routes, and DB tables are involved.
+How to build this feature \u2014 what changes to existing code, what new code is needed. Be specific about which components, API routes, and DB tables are involved.
 
 ### Complexity Estimate
 - **Scope:** [Small (1-2 files) | Medium (3-5 files) | Large (6+ files)]
@@ -150,13 +202,33 @@ function getSystemPrompt(ticketType?: TicketType): string {
   return FEATURE_SYSTEM_PROMPT
 }
 
+/** Extract risk_level from a FIX_BRIEF block in the analysis text. */
+export function extractRiskLevel(analysis: string): 'safe' | 'risky' {
+  const match = analysis.match(/risk_level:\s*(safe|risky)/i)
+  return match ? (match[1].toLowerCase() as 'safe' | 'risky') : 'risky'
+}
+
+/** Extract the full FIX_BRIEF YAML block from analysis text. Returns null if not found. */
+export function extractFixBrief(analysis: string): string | null {
+  const match = analysis.match(/<!-- FIX_BRIEF\n([\s\S]*?)END_FIX_BRIEF -->/)
+  return match ? match[1].trim() : null
+}
+
 /**
  * Investigate a ticket using Claude HAIKU and post findings as a comment.
- * Fire-and-forget — errors are logged but don't propagate.
+ * Fire-and-forget \u2014 errors are logged but don't propagate.
+ *
+ * Posts a <!-- MACHINE:investigation --> comment with structured FIX_BRIEF
+ * for the autofix pipeline to consume.
+ *
+ * @param supplementalContext Optional additional context from human comments or previous attempts
  */
-export async function investigateTicket(input: InvestigationInput): Promise<void> {
+export async function investigateTicket(
+  input: InvestigationInput,
+  supplementalContext?: string,
+): Promise<void> {
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.log('[ticket-investigator] ANTHROPIC_API_KEY not set — skipping')
+    console.log('[ticket-investigator] ANTHROPIC_API_KEY not set \u2014 skipping')
     return
   }
 
@@ -185,6 +257,12 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
       parts.push('A screenshot is available (see ticket). Analyze based on the description.')
     }
 
+    if (supplementalContext) {
+      parts.push('')
+      parts.push('## Additional Context (from human comments or previous attempts)')
+      parts.push(supplementalContext)
+    }
+
     parts.push('')
     if (isBug) {
       parts.push('Investigate this bug and identify the likely root cause and files involved.')
@@ -194,7 +272,7 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
 
     const response = await anthropic.messages.create({
       model: HAIKU,
-      max_tokens: 1500,
+      max_tokens: 2000,
       system: getSystemPrompt(input.ticketType),
       messages: [{ role: 'user', content: parts.join('\n') }],
     })
@@ -203,12 +281,13 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
     const analysis = textBlock && 'text' in textBlock ? textBlock.text : ''
 
     if (!analysis.trim()) {
-      console.log('[ticket-investigator] Empty response from Claude — skipping comment')
+      console.log('[ticket-investigator] Empty response from Claude \u2014 skipping comment')
       return
     }
 
-    // Post the investigation as a comment on the ticket
+    // Wrap in machine marker for the autonomous pipeline to identify
     const comment = [
+      '<!-- MACHINE:investigation -->',
       '## AI Investigation',
       '',
       `_Automated analysis by Claude ${HAIKU}_`,
@@ -218,11 +297,11 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
 
     await commentOnIssue(input.issueId, comment)
 
-    // Transition to backlog — investigated and ready for action
+    // Transition to backlog \u2014 investigated and ready for action
     await updateIssueState(input.issueId, 'backlog')
-    console.log(`[ticket-investigator] Posted investigation on ${input.issueIdentifier} → backlog`)
+    console.log(`[ticket-investigator] Posted investigation on ${input.issueIdentifier} \u2192 backlog`)
   } catch (err) {
     console.error(`[ticket-investigator] Failed to investigate ${input.issueIdentifier}:`, err)
-    // Don't propagate — investigation is best-effort
+    // Don't propagate \u2014 investigation is best-effort
   }
 }
