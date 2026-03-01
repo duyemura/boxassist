@@ -25,13 +25,15 @@ async function main() {
 
   const client = new LinearClient({ apiKey: process.env.LINEAR_API_KEY })
 
-  // Look up issue by identifier using search (filter doesn't support identifier)
+  // Look up issue by identifier using search, then fetch full issue
   const results = await client.searchIssues(identifier)
-  const issue = results.nodes.find(i => i.identifier === identifier)
-  if (!issue) {
+  const searchHit = results.nodes.find(i => i.identifier === identifier)
+  if (!searchHit) {
     console.error(`Issue ${identifier} not found`)
     process.exit(1)
   }
+
+  const issue = await client.issue(searchHit.id)
 
   // Get the issue description
   const parts: string[] = []

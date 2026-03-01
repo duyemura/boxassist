@@ -37,12 +37,12 @@ async function main() {
   let issueId = issueIdOrIdentifier
   if (issueIdOrIdentifier.match(/^[A-Z]+-\d+$/)) {
     const results = await client.searchIssues(issueIdOrIdentifier)
-    const issue = results.nodes.find(i => i.identifier === issueIdOrIdentifier)
-    if (!issue) {
+    const hit = results.nodes.find(i => i.identifier === issueIdOrIdentifier)
+    if (!hit) {
       console.error(`Issue ${issueIdOrIdentifier} not found`)
       process.exit(1)
     }
-    issueId = issue.id
+    issueId = hit.id
     console.log(`Resolved ${issueIdOrIdentifier} → ${issueId}`)
   }
 
