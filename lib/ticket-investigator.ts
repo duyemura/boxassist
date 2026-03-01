@@ -1,10 +1,10 @@
 /**
  * AI-powered ticket investigation agent.
  *
- * After a bug/error ticket is created from the feedback widget,
- * this module uses Claude HAIKU to analyze the bug description,
- * identify likely files and root causes, and post a structured
- * investigation comment on the Linear ticket.
+ * After a ticket is created from the feedback widget (bug, feature,
+ * or suggestion), this module uses Claude HAIKU to analyze the request,
+ * identify relevant files and implementation approaches, and post a
+ * structured investigation comment on the Linear ticket.
  *
  * Runs asynchronously — ticket creation returns immediately,
  * investigation happens in the background.
@@ -14,11 +14,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from './models'
 import { commentOnIssue } from './linear'
 
+export type TicketType = 'bug' | 'error' | 'feature' | 'suggestion' | 'feedback'
+
 export interface InvestigationInput {
   issueId: string
   issueIdentifier: string
   title: string
   description: string
+  ticketType?: TicketType
   pageUrl?: string
   screenshotUrl?: string | null
   navigationHistory?: string[]
@@ -47,7 +50,7 @@ const CODEBASE_MAP = `## Project Structure (GymAgents)
 - /api/agents/chat/route.ts — SSE chat endpoint for interactive agent sessions
 - /api/agents/run/route.ts — Manual agent run trigger
 - /api/agents/[id]/runs/route.ts — List conversation runs for an agent (metadata only)
-- /api/agents/runs/[sessionId]/route.ts — Get full session + reconstructed messages. Uses reconstructMessages() to convert Claude API format → display format
+- /api/agents/runs/[sessionId]/route.ts — Get full session + reconstructed messages + DELETE endpoint
 - /api/feedback/route.ts — Feedback widget submission
 - /api/dashboard/route.ts — Dashboard data aggregation
 - /api/cron/run-analysis/route.ts — Scheduled analysis cron
@@ -75,7 +78,7 @@ const CODEBASE_MAP = `## Project Structure (GymAgents)
 - Skill files in lib/task-skills/*.md with YAML front-matter
 - Tests in lib/__tests__/*.test.ts using vitest`
 
-const SYSTEM_PROMPT = `You are a senior software engineer investigating a bug report for the GymAgents project (Next.js 14 App Router + Supabase + Claude AI).
+const BUG_SYSTEM_PROMPT = `You are a senior software engineer investigating a bug report for the GymAgents project (Next.js 14 App Router + Supabase + Claude AI).
 
 Your job is to analyze the bug description and identify:
 1. Which files are most likely involved
@@ -110,6 +113,43 @@ A vitest test that would prove the bug exists. Include the test file location.
 
 Be concise. Focus on actionable investigation steps, not generic advice.`
 
+const FEATURE_SYSTEM_PROMPT = `You are a senior software engineer analyzing a feature request for the GymAgents project (Next.js 14 App Router + Supabase + Claude AI).
+
+Your job is to analyze the feature request and provide a technical assessment:
+1. Which existing files would need to change
+2. What new files might need to be created
+3. How this feature fits into the existing architecture
+4. What the implementation approach should be
+
+You have a map of the project structure below. Use it to identify relevant files.
+
+${CODEBASE_MAP}
+
+## Output Format
+
+Write your analysis as structured markdown with these sections:
+
+### Relevant Files
+List the 2-5 existing files most relevant to this feature, with a brief reason for each.
+
+### Implementation Approach
+How to build this feature — what changes to existing code, what new code is needed. Be specific about which components, API routes, and DB tables are involved.
+
+### Complexity Estimate
+- **Scope:** [Small (1-2 files) | Medium (3-5 files) | Large (6+ files)]
+- **Area:** [Dashboard | API | Agent Runtime | Setup | Cron | Email | General]
+- **Dependencies:** Any external services, new packages, or DB migrations needed
+
+### Considerations
+Any gotchas, edge cases, or architectural concerns to keep in mind.
+
+Be concise and specific. Reference actual file paths and function names from the codebase map.`
+
+function getSystemPrompt(ticketType?: TicketType): string {
+  if (ticketType === 'bug' || ticketType === 'error') return BUG_SYSTEM_PROMPT
+  return FEATURE_SYSTEM_PROMPT
+}
+
 /**
  * Investigate a ticket using Claude HAIKU and post findings as a comment.
  * Fire-and-forget — errors are logged but don't propagate.
@@ -122,10 +162,12 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
 
   try {
     const anthropic = new Anthropic()
+    const isBug = input.ticketType === 'bug' || input.ticketType === 'error'
+    const typeLabel = isBug ? 'Bug Report' : 'Feature Request'
 
     // Build the user message with all available context
     const parts: string[] = []
-    parts.push(`## Bug Report: ${input.title}`)
+    parts.push(`## ${typeLabel}: ${input.title}`)
     parts.push('')
     parts.push(input.description)
 
@@ -135,21 +177,25 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
     }
 
     if (input.navigationHistory?.length) {
-      parts.push(`**Navigation path:** ${input.navigationHistory.join(' → ')}`)
+      parts.push(`**Navigation path:** ${input.navigationHistory.join(' \u2192 ')}`)
     }
 
     if (input.screenshotUrl) {
       parts.push('')
-      parts.push(`A screenshot of the bug is available (see ticket). Analyze based on the description.`)
+      parts.push('A screenshot is available (see ticket). Analyze based on the description.')
     }
 
     parts.push('')
-    parts.push('Investigate this bug and identify the likely root cause and files involved.')
+    if (isBug) {
+      parts.push('Investigate this bug and identify the likely root cause and files involved.')
+    } else {
+      parts.push('Analyze this request and identify the relevant files, implementation approach, and complexity.')
+    }
 
     const response = await anthropic.messages.create({
       model: HAIKU,
       max_tokens: 1500,
-      system: SYSTEM_PROMPT,
+      system: getSystemPrompt(input.ticketType),
       messages: [{ role: 'user', content: parts.join('\n') }],
     })
 
@@ -163,7 +209,7 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
 
     // Post the investigation as a comment on the ticket
     const comment = [
-      '## 🔍 AI Investigation',
+      '## AI Investigation',
       '',
       `_Automated analysis by Claude ${HAIKU}_`,
       '',

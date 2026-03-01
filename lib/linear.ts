@@ -251,18 +251,16 @@ async function createSimpleIssue(
     : `[${tag}] ${titleText}${input.message.length > 70 ? '...' : ''}`
 
   try {
-    // Collect labels: type label + area label for bugs
+    // Collect labels: type label + area label + investigation label for all types
     const allLabelIds: string[] = []
     const labelNames = [tag]
-    if (isBugType) {
-      const areaLabelMap: Record<string, string> = {
-        Dashboard: 'dashboard', API: 'api', Setup: 'setup',
-        Cron: 'cron', Email: 'email', General: 'api',
-      }
-      const areaLabel = areaLabelMap[area]
-      if (areaLabel && areaLabel !== tag) labelNames.push(areaLabel)
-      labelNames.push('needs-investigation')
+    const areaLabelMap: Record<string, string> = {
+      Dashboard: 'dashboard', API: 'api', Setup: 'setup',
+      Cron: 'cron', Email: 'email', General: 'api',
     }
+    const areaLabel = areaLabelMap[area]
+    if (areaLabel && areaLabel !== tag) labelNames.push(areaLabel)
+    labelNames.push('needs-investigation')
 
     for (const name of labelNames) {
       const ids = await ensureLabel(client, teamId, name)
@@ -289,20 +287,19 @@ async function createSimpleIssue(
       url: issue.url,
     }
 
-    // Fire off AI investigation for bugs/errors (async, non-blocking)
-    if (isBugType) {
-      investigateTicket({
-        issueId: issue.id,
-        issueIdentifier: issue.identifier,
-        title,
-        description: input.message,
-        pageUrl: input.url ?? undefined,
-        screenshotUrl: input.screenshotUrl,
-        navigationHistory: meta.navigationHistory,
-      }).catch(err => {
-        console.error('[linear] AI investigation failed:', err)
-      })
-    }
+    // Fire off AI investigation for all ticket types (async, non-blocking)
+    investigateTicket({
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+      title,
+      description: input.message,
+      ticketType: input.type as any,
+      pageUrl: input.url ?? undefined,
+      screenshotUrl: input.screenshotUrl,
+      navigationHistory: meta.navigationHistory,
+    }).catch(err => {
+      console.error('[linear] AI investigation failed:', err)
+    })
 
     return issueResult
   } catch (err) {

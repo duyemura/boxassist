@@ -2,8 +2,8 @@
  * ticket-investigator.test.ts
  *
  * Tests for the AI-powered ticket investigation agent.
- * After a bug/error ticket is created, this module analyzes the bug
- * and posts a structured investigation comment on the Linear ticket.
+ * After a ticket is created (bug, feature, or suggestion), this module
+ * analyzes it and posts a structured investigation comment on Linear.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -47,6 +47,7 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-7',
       title: '[bug] Chat only shows user messages',
       description: 'When clicking on old chat, only shows messages I sent',
+      ticketType: 'bug',
       pageUrl: 'http://localhost:3000/dashboard',
       navigationHistory: ['/dashboard/improvements'],
     })
@@ -93,6 +94,7 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-7',
       title: '[bug] Chat only shows user messages',
       description: 'When clicking on old chat, only shows messages I sent',
+      ticketType: 'bug',
     })
 
     // Should post comment with investigation header
@@ -117,6 +119,7 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-8',
       title: '[bug] Setup page crashes',
       description: 'Setup wizard crashes when selecting agent',
+      ticketType: 'bug',
       pageUrl: 'http://localhost:3000/setup',
       navigationHistory: ['/dashboard', '/setup'],
     })
@@ -138,6 +141,7 @@ describe('ticket-investigator', () => {
         issueIdentifier: 'AGT-9',
         title: '[bug] Something broke',
         description: 'Something broke',
+        ticketType: 'bug',
       }),
     ).resolves.not.toThrow()
 
@@ -157,6 +161,7 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-10',
       title: '[bug] Edge case',
       description: 'Something weird',
+      ticketType: 'bug',
     })
 
     // Should not post an empty comment
@@ -172,6 +177,7 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-11',
       title: '[bug] No API key',
       description: 'Should skip',
+      ticketType: 'bug',
     })
 
     expect(mockCreate).not.toHaveBeenCalled()
@@ -191,11 +197,102 @@ describe('ticket-investigator', () => {
       issueIdentifier: 'AGT-12',
       title: '[bug] Visual glitch',
       description: 'Chart renders wrong',
+      ticketType: 'bug',
       screenshotUrl: 'https://storage.example.com/shot.png',
     })
 
     const userMsg = mockCreate.mock.calls[0][0].messages[0].content
     expect(userMsg).toContain('screenshot')
   })
-})
 
+  it('uses feature system prompt for feature tickets', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '## Implementation Approach\nAdd delete button' }],
+      usage: { input_tokens: 500, output_tokens: 200 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket({
+      issueId: 'issue-feat-1',
+      issueIdentifier: 'AGT-20',
+      title: '[feedback] Need a way to delete a convo',
+      description: 'Need a way to delete a convo',
+      ticketType: 'feature',
+      pageUrl: 'http://localhost:3000/dashboard',
+    })
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    // Feature prompt should mention implementation approach, not root cause
+    expect(callArgs.system).toContain('feature request')
+    expect(callArgs.system).toContain('Implementation Approach')
+    expect(callArgs.system).not.toContain('Root Cause')
+
+    // User message should label it as Feature Request
+    const userMsg = callArgs.messages[0].content
+    expect(userMsg).toContain('Feature Request')
+    expect(userMsg).toContain('delete a convo')
+  })
+
+  it('uses feature system prompt for suggestion tickets', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '## Relevant Files\n- components/AgentChat.tsx' }],
+      usage: { input_tokens: 400, output_tokens: 150 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket({
+      issueId: 'issue-sug-1',
+      issueIdentifier: 'AGT-21',
+      title: '[suggestion] Add keyboard shortcuts',
+      description: 'Would be nice to have keyboard shortcuts for common actions',
+      ticketType: 'suggestion',
+    })
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.system).toContain('feature request')
+    expect(callArgs.messages[0].content).toContain('Feature Request')
+  })
+
+  it('uses bug system prompt for bug tickets', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: '## Root Cause\nSomething broke' }],
+      usage: { input_tokens: 400, output_tokens: 150 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket({
+      issueId: 'issue-bug-1',
+      issueIdentifier: 'AGT-22',
+      title: '[bug] Page crashes',
+      description: 'Page crashes on load',
+      ticketType: 'bug',
+    })
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.system).toContain('bug report')
+    expect(callArgs.system).toContain('Root Cause')
+    expect(callArgs.messages[0].content).toContain('Bug Report')
+  })
+
+  it('defaults to feature prompt when ticketType is undefined', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'Analysis' }],
+      usage: { input_tokens: 400, output_tokens: 100 },
+    })
+    mockCommentOnIssue.mockResolvedValue(true)
+
+    const { investigateTicket } = await import('../ticket-investigator')
+    await investigateTicket({
+      issueId: 'issue-no-type',
+      issueIdentifier: 'AGT-23',
+      title: 'Some ticket',
+      description: 'No type specified',
+    })
+
+    const callArgs = mockCreate.mock.calls[0][0]
+    expect(callArgs.system).toContain('feature request')
+  })
+})

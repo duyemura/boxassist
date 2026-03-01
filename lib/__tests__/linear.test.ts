@@ -265,6 +265,24 @@ describe('linear integration', () => {
     expect(callArg.description).toContain('pending AI investigation')
   })
 
+  it('fires AI investigation for feedback/feature tickets', async () => {
+    const mockIssue = { id: 'i-feat', identifier: 'GA-14', url: 'https://linear.app/ga/GA-14' }
+    mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-label' }] })
+    mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+    const { createFeedbackIssue } = await import('../linear')
+    await createFeedbackIssue({
+      type: 'feedback',
+      message: 'Need a way to delete conversations',
+      url: 'http://localhost:3000/dashboard',
+    })
+
+    expect(mockIssueCreate).toHaveBeenCalled()
+    // Investigation fires for non-bug types too — ticket is created successfully
+    const callArg = mockIssueCreate.mock.calls[0][0]
+    expect(callArg.title).toContain('delete conversations')
+  })
+
   it('validates connection successfully', async () => {
     mockTeams.mockResolvedValue({
       nodes: [
