@@ -133,13 +133,80 @@ if (webhooks.length === 0) {
   }
 }
 
-// ── 5. Summary ────────────────────────────────────────────────────────────────
+// ── 5. Update Linear webhooks ─────────────────────────────────────────────────
+
+const LINEAR_API_KEY = getEnvVar('LINEAR_API_KEY')
+let linearWebhookUrl = '(skipped — no LINEAR_API_KEY)'
+
+if (LINEAR_API_KEY) {
+  console.log('Updating Linear webhooks...')
+  try {
+    // List existing webhooks
+    const listRes = await fetch('https://api.linear.app/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: LINEAR_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: `{ webhooks { nodes { id url enabled } } }`,
+      }),
+    })
+    if (!listRes.ok) throw new Error(`Linear API ${listRes.status}`)
+    const listData = await listRes.json()
+    const hooks = listData.data?.webhooks?.nodes ?? []
+    const linearHook = hooks.find(h => h.url?.includes('/api/webhooks/linear'))
+
+    if (linearHook) {
+      const newUrl = `${ngrokUrl}/api/webhooks/linear`
+      if (linearHook.url === newUrl) {
+        console.log('  /api/webhooks/linear — already correct')
+      } else {
+        const updateRes = await fetch('https://api.linear.app/graphql', {
+          method: 'POST',
+          headers: {
+            Authorization: LINEAR_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: `mutation($id: String!, $url: String!) {
+              webhookUpdate(id: $id, input: { url: $url }) {
+                success
+                webhook { id url }
+              }
+            }`,
+            variables: { id: linearHook.id, url: newUrl },
+          }),
+        })
+        const updateData = await updateRes.json()
+        if (updateData.data?.webhookUpdate?.success) {
+          console.log(`  /api/webhooks/linear`)
+          console.log(`    ${linearHook.url}`)
+          console.log(`    → ${newUrl}`)
+          linearWebhookUrl = newUrl
+        } else {
+          console.warn(`  Linear webhook update failed:`, JSON.stringify(updateData.errors ?? updateData))
+        }
+      }
+    } else {
+      console.log('  No Linear webhook found matching /api/webhooks/linear')
+      console.log('  Create one in Linear Settings → API → Webhooks')
+    }
+  } catch (err) {
+    console.warn(`  Could not update Linear webhook: ${err.message}`)
+  }
+} else {
+  console.log('\nSkipping Linear webhook sync (no LINEAR_API_KEY in .env.local)')
+}
+
+// ── 6. Summary ────────────────────────────────────────────────────────────────
 
 console.log(`
 Done. Your local webhook endpoints:
 
   Resend inbound:   ${ngrokUrl}/api/webhooks/inbound
   Resend events:    ${ngrokUrl}/api/webhooks/resend
+  Linear:           ${linearWebhookUrl}
   PushPress:        ${ngrokUrl}/api/webhooks/pushpress
   Gmail Pub/Sub:    ${ngrokUrl}/api/webhooks/gmail
 

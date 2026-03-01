@@ -13,6 +13,8 @@
     "cron": "node scripts/cron-local.mjs",
     "cron:watch": "node scripts/cron-local.mjs --watch",
     "dev:sync": "node scripts/dev-sync.mjs",
+    "dev:local": "npm run dev & npm run cron:watch & wait",
+    "prod:enable": "node scripts/prod-enable.mjs",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
   },

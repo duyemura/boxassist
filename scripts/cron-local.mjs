@@ -13,6 +13,7 @@
 import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { CRONS } from './cron-config.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
@@ -37,29 +38,7 @@ if (!CRON_SECRET) {
   process.exit(1)
 }
 
-const CRONS = [
-  {
-    name: 'process-commands',
-    path: '/api/cron/process-commands',
-    // Every minute in Vercel — skip in watch mode to avoid noise; run manually
-    intervalMs: 60_000,
-  },
-  {
-    name: 'tick-workflows',
-    path: '/api/cron/tick-workflows',
-    intervalMs: 5 * 60_000, // every 5 min
-  },
-  {
-    name: 'attribute-outcomes',
-    path: '/api/cron/attribute-outcomes',
-    intervalMs: 60 * 60_000, // every hour
-  },
-  {
-    name: 'run-analysis',
-    path: '/api/cron/run-analysis',
-    intervalMs: 6 * 60 * 60_000, // every 6 hours
-  },
-]
+// CRONS imported from cron-config.mjs — single source of truth
 
 async function runCron(cron) {
   const url = `${BASE_URL}${cron.path}`
