@@ -67,7 +67,7 @@ jobs:
           fix the actual code. If you cannot fix it, document what you found.
           PROMPT
           )" --dangerously-skip-permissions \
-             --max-turns 30
+             --max-turns 50 || true
 
       - name: Report result to Linear
         if: always()
