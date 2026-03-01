@@ -1,7 +1,5 @@
 'use client'
 
-import Link from 'next/link'
-
 interface Agent {
   id: string
   name: string
@@ -51,43 +49,30 @@ export default function AgentTable({ agents, selectedId, onSelect, isDemo }: Age
         <span className="text-xs text-gray-400 w-20 text-right hidden sm:block">Last run</span>
       </div>
 
-      {agents.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-16 px-4">
-          <p className="text-sm text-gray-500 mb-3">No agents yet.</p>
-          <Link
-            href="/agent-builder"
-            className="text-xs font-semibold text-white px-4 py-2 transition-opacity hover:opacity-80"
-            style={{ backgroundColor: '#0063FF' }}
+      <div className="flex-1 overflow-y-auto">
+        {agents.map(agent => (
+          <div
+            key={agent.id}
+            className={`flex items-center gap-4 px-4 py-3 border-b border-gray-100 cursor-pointer transition-colors ${
+              selectedId === agent.id ? 'bg-gray-50' : 'hover:bg-gray-50'
+            }`}
+            onClick={() => onSelect(agent.id)}
           >
-            + Create your first agent
-          </Link>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto">
-          {agents.map(agent => (
-            <div
-              key={agent.id}
-              className={`flex items-center gap-4 px-4 py-3 border-b border-gray-100 cursor-pointer transition-colors ${
-                selectedId === agent.id ? 'bg-gray-50' : 'hover:bg-gray-50'
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                agent.active ? 'bg-green-400' : 'bg-gray-200'
               }`}
-              onClick={() => onSelect(agent.id)}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                  agent.active ? 'bg-green-400' : 'bg-gray-200'
-                }`}
-              />
-              <span className="text-sm font-medium text-gray-900 flex-1 truncate">{agent.name}</span>
-              <span className="text-xs text-gray-400 w-28 hidden sm:block truncate">
-                {formatSkillType(agent.skill_type)}
-              </span>
-              <span className="text-xs text-gray-300 w-20 text-right hidden sm:block">
-                {agent.last_run_at ? timeAgo(agent.last_run_at) : 'never'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+            />
+            <span className="text-sm font-medium text-gray-900 flex-1 truncate">{agent.name}</span>
+            <span className="text-xs text-gray-400 w-28 hidden sm:block truncate">
+              {formatSkillType(agent.skill_type)}
+            </span>
+            <span className="text-xs text-gray-300 w-20 text-right hidden sm:block">
+              {agent.last_run_at ? timeAgo(agent.last_run_at) : 'never'}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

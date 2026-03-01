@@ -260,37 +260,17 @@ export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDele
         )}
 
         {/* Workflow agents */}
-        {workflowAgents.length === 0 ? (
-          <div className="flex items-center justify-center px-8 py-12 text-center">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">No agents yet</p>
-              <p className="text-xs text-gray-400 mb-5 max-w-xs">
-                Create your first agent to start monitoring your clients automatically.
-              </p>
-              {!isDemo && (
-                <button
-                  onClick={onAddAgent}
-                  className="text-xs font-medium text-white px-4 py-1.5 transition-opacity hover:opacity-80"
-                  style={{ backgroundColor: '#0063FF' }}
-                >
-                  Create your first agent →
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          workflowAgents.map(agent => (
-            <AgentRow
-              key={agent.id}
-              agent={agent}
-              isDemo={isDemo}
-              onSelect={onSelect}
-              onToggle={onToggle}
-              onDelete={onDelete}
-              onChat={onChat}
-            />
-          ))
-        )}
+        {workflowAgents.map(agent => (
+          <AgentRow
+            key={agent.id}
+            agent={agent}
+            isDemo={isDemo}
+            onSelect={onSelect}
+            onToggle={onToggle}
+            onDelete={onDelete}
+            onChat={onChat}
+          />
+        ))}
       </div>
     </div>
   )
