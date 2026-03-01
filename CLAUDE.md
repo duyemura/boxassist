@@ -198,14 +198,15 @@ WORKFLOWS.md          # Workflow engine design doc
 
 ## Bug Fixes — Headless Process
 
-**When fixing a bug, follow `docs/TICKET-PIPELINE.md` without asking questions.**
+**When told "Fix AGT-XX", follow `docs/TICKET-PIPELINE.md` without asking any questions. Execute the full cycle and report what you did at the end.**
 
-Key rules:
-- **Red-green-PR cycle:** Failing test first, then fix, then all tests pass, then branch + PR
-- **No questions:** Don't ask "should I?" or "want me to also?". Pick the simpler approach and execute.
-- **Document on the ticket:** Use `documentFixProgress()` at each stage (red, green, pr)
+Rules:
+- **Trigger:** Human says "Fix AGT-XX". Everything after that is headless — no confirmations, no "should I also?", no alternatives proposed.
+- **Red-green-PR:** Failing test first → fix → all tests pass → branch + commit + PR. No exceptions.
+- **Document on the ticket:** Call `documentFixProgress()` at each stage (red, green, pr) — this updates Linear status automatically.
 - **Max 5 files** per fix. More → label `needs-human` and stop.
 - **Never touch** auth, migrations, env vars, or billing without being asked.
+- **If blocked:** Label `needs-human` on the ticket with a comment explaining why, then stop.
 
 ## Testing — MANDATORY
 

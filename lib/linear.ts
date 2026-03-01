@@ -132,11 +132,32 @@ async function createStructuredBugIssue(
       return null
     }
 
-    return {
+    const issueResult: LinearIssueResult = {
       id: issue.id,
       identifier: issue.identifier,
       url: issue.url,
     }
+
+    // Transition to triage — ticket is created and classified
+    updateIssueState(issue.id, 'triage').catch(err => {
+      console.error('[linear] Failed to transition structured bug to triage:', err)
+    })
+
+    // Fire off AI investigation (async, non-blocking)
+    investigateTicket({
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+      title: ticket.title,
+      description: input.message,
+      ticketType: (input.type === 'error' ? 'error' : 'bug') as any,
+      pageUrl: input.url ?? undefined,
+      screenshotUrl: input.screenshotUrl,
+      navigationHistory: meta.navigationHistory,
+    }).catch(err => {
+      console.error('[linear] AI investigation failed for structured bug:', err)
+    })
+
+    return issueResult
   } catch (err) {
     console.error('[linear] Failed to create structured issue:', err)
     return null
@@ -286,6 +307,11 @@ async function createSimpleIssue(
       identifier: issue.identifier,
       url: issue.url,
     }
+
+    // Transition to triage — ticket is created, awaiting investigation
+    updateIssueState(issue.id, 'triage').catch(err => {
+      console.error('[linear] Failed to transition simple issue to triage:', err)
+    })
 
     // Fire off AI investigation for all ticket types (async, non-blocking)
     investigateTicket({

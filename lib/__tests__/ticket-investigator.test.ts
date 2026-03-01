@@ -20,10 +20,10 @@ vi.mock('@anthropic-ai/sdk', () => {
 })
 
 const mockCommentOnIssue = vi.fn()
-const mockUpdateIssue = vi.fn()
+const mockUpdateIssueState = vi.fn()
 vi.mock('../linear', () => ({
   commentOnIssue: (...args: unknown[]) => mockCommentOnIssue(...args),
-  updateIssueState: (...args: unknown[]) => mockUpdateIssue(...args),
+  updateIssueState: (...args: unknown[]) => mockUpdateIssueState(...args),
 }))
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 500, output_tokens: 200 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -66,6 +67,9 @@ describe('ticket-investigator', () => {
     const userMsg = callArgs.messages[0].content
     expect(userMsg).toContain('Chat only shows user messages')
     expect(userMsg).toContain('/dashboard')
+
+    // Should transition to backlog after investigation
+    expect(mockUpdateIssueState).toHaveBeenCalledWith('issue-001', 'backlog')
   })
 
   it('posts investigation comment on the Linear ticket', async () => {
@@ -87,6 +91,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 500, output_tokens: 300 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -104,6 +109,9 @@ describe('ticket-investigator', () => {
     expect(body).toContain('AI Investigation')
     expect(body).toContain('AgentChat.tsx')
     expect(body).toContain('reconstructMessages()')
+
+    // Should transition to backlog after posting investigation
+    expect(mockUpdateIssueState).toHaveBeenCalledWith('issue-001', 'backlog')
   })
 
   it('includes page URL and navigation in the prompt', async () => {
@@ -112,6 +120,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 400, output_tokens: 150 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -190,6 +199,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 400, output_tokens: 100 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -211,6 +221,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 500, output_tokens: 200 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -240,6 +251,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 400, output_tokens: 150 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -261,6 +273,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 400, output_tokens: 150 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({
@@ -283,6 +296,7 @@ describe('ticket-investigator', () => {
       usage: { input_tokens: 400, output_tokens: 100 },
     })
     mockCommentOnIssue.mockResolvedValue(true)
+    mockUpdateIssueState.mockResolvedValue(true)
 
     const { investigateTicket } = await import('../ticket-investigator')
     await investigateTicket({

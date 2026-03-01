@@ -33,8 +33,9 @@ vi.mock('@linear/sdk', () => {
 })
 
 // Mock the ticket investigator (fire-and-forget, don't actually call Claude)
+const mockInvestigateTicket = vi.fn().mockResolvedValue(undefined)
 vi.mock('../ticket-investigator', () => ({
-  investigateTicket: vi.fn().mockResolvedValue(undefined),
+  investigateTicket: (...args: unknown[]) => mockInvestigateTicket(...args),
 }))
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -163,6 +164,16 @@ describe('linear integration', () => {
     const mockIssue = { id: 'i-structured', identifier: 'GA-10', url: 'https://linear.app/ga/GA-10' }
     mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'existing-label' }] })
     mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+    // State transitions need workflow states
+    mockTeam.mockResolvedValue({
+      states: vi.fn().mockResolvedValue({
+        nodes: [
+          { id: 'st-triage', name: 'Triage', type: 'triage' },
+          { id: 'st-backlog', name: 'Backlog', type: 'backlog' },
+        ],
+      }),
+    })
+    mockIssueUpdate.mockResolvedValue({ success: true })
 
     const { createFeedbackIssue } = await import('../linear')
     await createFeedbackIssue({
@@ -178,6 +189,9 @@ describe('linear integration', () => {
         navigationHistory: ['/setup', '/dashboard'],
       },
     })
+
+    // Flush fire-and-forget promises (updateIssueState, investigateTicket)
+    await new Promise(r => setTimeout(r, 10))
 
     const callArg = mockIssueCreate.mock.calls[0][0]
 
@@ -196,6 +210,18 @@ describe('linear integration', () => {
 
     // Priority should be High (2) for auto-fixable bug
     expect(callArg.priority).toBe(2)
+
+    // Should fire AI investigation for structured bugs too
+    expect(mockInvestigateTicket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issueId: 'i-structured',
+        issueIdentifier: 'GA-10',
+        ticketType: 'error',
+      }),
+    )
+
+    // Should transition to triage state
+    expect(mockIssueUpdate).toHaveBeenCalledWith('i-structured', { stateId: 'st-triage' })
   })
 
   it('uses area-tagged title for bugs without stack traces', async () => {

@@ -12,7 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from './models'
-import { commentOnIssue } from './linear'
+import { commentOnIssue, updateIssueState } from './linear'
 
 export type TicketType = 'bug' | 'error' | 'feature' | 'suggestion' | 'feedback'
 
@@ -217,7 +217,10 @@ export async function investigateTicket(input: InvestigationInput): Promise<void
     ].join('\n')
 
     await commentOnIssue(input.issueId, comment)
-    console.log(`[ticket-investigator] Posted investigation on ${input.issueIdentifier}`)
+
+    // Transition to backlog — investigated and ready for action
+    await updateIssueState(input.issueId, 'backlog')
+    console.log(`[ticket-investigator] Posted investigation on ${input.issueIdentifier} → backlog`)
   } catch (err) {
     console.error(`[ticket-investigator] Failed to investigate ${input.issueIdentifier}:`, err)
     // Don't propagate — investigation is best-effort

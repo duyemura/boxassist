@@ -34,6 +34,8 @@ Four types, classified at creation time and tagged in Linear:
 
 ## The Pipeline
 
+Every ticket follows this flow. The **Linear status** column shows where the ticket sits at each stage.
+
 ```
 User action or runtime error
     │
@@ -47,7 +49,7 @@ User action or runtime error
            ▼
 ┌──────────────────────────────┐
 │ 2. CREATE TICKET             │  lib/linear.ts → createFeedbackIssue()
-│    Has stack trace?          │
+│    Has stack trace?          │  Linear status: → Triage
 │    ├─ YES → buildStructured  │  lib/bug-triage.ts → buildStructuredTicket()
 │    │   BugIssue() with       │    parseStackTrace()
 │    │   triage, red test      │    classifyArea()
@@ -65,14 +67,15 @@ User action or runtime error
 │    the ticket and posts      │
 │    structured findings as    │  Uses BUG_SYSTEM_PROMPT for bugs/errors
 │    a Linear comment          │  Uses FEATURE_SYSTEM_PROMPT for features
+│                              │  Linear status: → Backlog (investigated)
 └──────────┬───────────────────┘
            │
            ▼
 ┌──────────────────────────────┐
-│ 4. FIX (bugs only)           │  Claude Code session
-│    Red-green-PR cycle        │  See "Bug Fix Process" below
+│ 4. FIX (bugs only)           │  Trigger: human says "Fix AGT-XX"
+│    Red-green-PR cycle        │  Then fully headless — no questions
 │    Fully headless — no       │
-│    questions asked            │
+│    questions asked            │  Linear status: → In Progress (on red test)
 └──────────┬───────────────────┘
            │
            ▼
@@ -84,20 +87,37 @@ User action or runtime error
            │
            ▼
 ┌──────────────────────────────┐
-│ 6. DEPLOY & CLOSE            │  Vercel auto-deploys on merge
-│    notify-deploy webhook     │  lib/linear.ts → documentFixProgress('deployed')
-│    auto-transitions ticket   │  Auto-transitions ticket → Done
-│    to Done                   │
+│ 6. DEPLOY & CLOSE            │  GitHub Actions notify-deploy
+│    notify-deploy parses      │  scripts/notify-deploy.ts
+│    AGT-XX from commits,      │  Linear status: → Done
+│    transitions ticket        │
 └──────────────────────────────┘
 ```
 
-Steps 1–3 and 6 are already fully automated. Step 5 is the only human step. Step 4 is what this document defines.
+### Linear Status at Each Stage
+
+| Stage | Linear Status | How it gets there |
+|---|---|---|
+| Ticket created | **Triage** | `createFeedbackIssue()` calls `updateIssueState(id, 'triage')` |
+| Investigation posted | **Backlog** | `investigateTicket()` calls `updateIssueState(id, 'backlog')` |
+| Red test written | **In Progress** | `documentFixProgress(id, 'red', ...)` calls `updateIssueState(id, 'inProgress')` |
+| Fix applied + PR | **In Progress** | stays in progress through green + PR |
+| Deployed to production | **Done** | `documentFixProgress(id, 'deployed', ...)` calls `updateIssueState(id, 'done')` |
+| Blocked / needs human | **Triage** | stays in triage, labeled `needs-human` |
+
+Steps 1–3 and 6 are fully automated. Step 4 is triggered manually ("Fix AGT-XX") but runs headlessly from there. Step 5 is human review.
 
 ---
 
 ## Bug Fix Process — Headless Rules
 
-When Claude Code is asked to fix a bug, follow this process **without asking any questions**. Do not pause for confirmation, do not ask "should I also...", do not propose alternatives. Execute the cycle.
+### How it starts
+
+A human says **"Fix AGT-XX"** (or similar). From that point on, the entire process is headless.
+
+### The rules
+
+Follow this process **without asking any questions**. Do not pause for confirmation, do not ask "should I also...", do not propose alternatives. Do not ask which files to change, whether to create a branch, or if the approach looks right. Execute the cycle start to finish, then report what you did.
 
 ### Decision framework (when unsure)
 
