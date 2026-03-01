@@ -19,10 +19,15 @@ import crypto from 'crypto'
 // ── Signature verification ───────────────────────────────────────────────────
 
 function verifyLinearSignature(body: string, signature: string, secret: string): boolean {
-  const hmac = crypto.createHmac('sha256', secret)
-  hmac.update(body)
-  const expected = hmac.digest('hex')
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  try {
+    const hmac = crypto.createHmac('sha256', secret)
+    hmac.update(body)
+    const expected = hmac.digest('hex')
+    if (signature.length !== expected.length) return false
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  } catch {
+    return false
+  }
 }
 
 // ── Webhook handler ──────────────────────────────────────────────────────────
