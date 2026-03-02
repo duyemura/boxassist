@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { parseToolResult } from '@/lib/tool-result-parse'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -207,17 +208,7 @@ function ToolCallBadge({ name, input }: { name: string; input?: unknown }) {
 
 function ToolResultBadge({ name, result }: { name: string; result?: unknown }) {
   const [expanded, setExpanded] = useState(false)
-  const r = result as Record<string, unknown> | null
-  const isError = r && 'error' in r
-  const summary = r
-    ? isError
-      ? String(r.error)
-      : r.status
-        ? String(r.status)
-        : r.count !== undefined
-          ? `${r.count} result${r.count === 1 ? '' : 's'}`
-          : 'Done'
-    : 'Done'
+  const { isError, summary, parsed } = parseToolResult(result)
 
   return (
     <div className="my-1">
@@ -233,10 +224,10 @@ function ToolResultBadge({ name, result }: { name: string; result?: unknown }) {
         <span style={{ fontSize: 9 }}>{isError ? '✕' : '✓'}</span>
         {toolDisplayName(name)}: {summary}
       </button>
-      {expanded && !!result && (
+      {expanded && parsed != null && (
         <pre className="mt-1 text-[10px] text-gray-500 font-mono leading-relaxed px-2 py-1.5 overflow-x-auto max-h-40 overflow-y-auto"
              style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' }}>
-          {JSON.stringify(result, null, 2)}
+          {typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2)}
         </pre>
       )}
     </div>
