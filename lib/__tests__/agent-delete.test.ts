@@ -22,10 +22,11 @@ vi.mock('@/lib/db/accounts', () => ({
   getAccountForUser: (...args: unknown[]) => mockGetAccountForUser(...args),
 }))
 
-// Track all from().delete()/select() chains
+// Track all from().delete()/select()/update() chains
 const mockAgentDelete = vi.fn()
 const mockAutomationDelete = vi.fn()
 const mockSubscriptionDelete = vi.fn()
+const mockSessionUpdate = vi.fn()
 const mockAgentSelect = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
@@ -59,6 +60,13 @@ vi.mock('@/lib/supabase', () => ({
           }),
         }
       }
+      if (table === 'agent_sessions') {
+        return {
+          update: vi.fn().mockReturnValue({
+            eq: mockSessionUpdate,
+          }),
+        }
+      }
       return {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
@@ -68,6 +76,9 @@ vi.mock('@/lib/supabase', () => ({
           }),
         }),
         delete: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: null }),
+        }),
+        update: vi.fn().mockReturnValue({
           eq: vi.fn().mockResolvedValue({ error: null }),
         }),
       }
@@ -134,6 +145,7 @@ describe('DELETE /api/agents/[id]', () => {
     })
     mockAutomationDelete.mockResolvedValue({ error: null })
     mockSubscriptionDelete.mockResolvedValue({ error: null })
+    mockSessionUpdate.mockResolvedValue({ error: null })
     mockAgentDelete.mockResolvedValue({ error: null })
 
     const res = await DELETE(makeReq(), params)
@@ -144,7 +156,30 @@ describe('DELETE /api/agents/[id]', () => {
     // Verify cascading cleanup happened
     expect(mockAutomationDelete).toHaveBeenCalled()
     expect(mockSubscriptionDelete).toHaveBeenCalled()
+    expect(mockSessionUpdate).toHaveBeenCalled()
     expect(mockAgentDelete).toHaveBeenCalled()
+  })
+
+  it('nullifies agent_sessions references before deleting agent', async () => {
+    mockGetSession.mockResolvedValue({ id: 'user-1' })
+    mockGetAccountForUser.mockResolvedValue({ id: 'acct-001' })
+    mockAgentSelect.mockResolvedValue({
+      data: { id: 'agent-123', account_id: 'acct-001' },
+      error: null,
+    })
+    mockAutomationDelete.mockResolvedValue({ error: null })
+    mockSubscriptionDelete.mockResolvedValue({ error: null })
+    mockSessionUpdate.mockResolvedValue({ error: null })
+    mockAgentDelete.mockResolvedValue({ error: null })
+
+    const { supabaseAdmin } = await import('@/lib/supabase')
+
+    await DELETE(makeReq(), params)
+
+    // Verify agent_sessions was updated to nullify agent_id before delete
+    const fromCalls = vi.mocked(supabaseAdmin.from).mock.calls.map(c => c[0])
+    expect(fromCalls).toContain('agent_sessions')
+    expect(mockSessionUpdate).toHaveBeenCalled()
   })
 
   it('returns 500 on database error during agent delete', async () => {
@@ -156,6 +191,7 @@ describe('DELETE /api/agents/[id]', () => {
     })
     mockAutomationDelete.mockResolvedValue({ error: null })
     mockSubscriptionDelete.mockResolvedValue({ error: null })
+    mockSessionUpdate.mockResolvedValue({ error: null })
     mockAgentDelete.mockResolvedValue({ error: { message: 'FK constraint violation' } })
 
     const res = await DELETE(makeReq(), params)

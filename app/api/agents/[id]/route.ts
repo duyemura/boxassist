@@ -82,10 +82,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   const owned = await getOwnedAgent(params.id, session.id)
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // agent_automations cascade on agent delete, but clean up explicitly for safety
+  // Clean up references before deleting agent
   await supabaseAdmin.from('agent_automations').delete().eq('agent_id', params.id)
-  // Legacy cleanup
   await supabaseAdmin.from('agent_subscriptions').delete().eq('agent_id', params.id)
+  // Nullify agent_sessions FK (no cascade — sessions are kept for history)
+  await supabaseAdmin.from('agent_sessions').update({ agent_id: null }).eq('agent_id', params.id)
 
   const { error } = await supabaseAdmin.from('agents').delete().eq('id', params.id)
 
