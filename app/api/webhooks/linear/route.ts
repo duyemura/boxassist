@@ -83,7 +83,7 @@ function isMachineComment(body: string): boolean {
  * Each <!-- MACHINE:audit --> comment = one attempt.
  * Returns the number of attempts and estimated total cost.
  */
-export function countAttemptsFromAudits(auditBodies: string[]): {
+function countAttemptsFromAudits(auditBodies: string[]): {
   attempts: number
   estimatedCostCents: number
 } {

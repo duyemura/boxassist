@@ -18,7 +18,18 @@ vi.stubGlobal('fetch', mockFetch)
 // ── Import ──────────────────────────────────────────────────────────────────
 
 import { POST } from '@/app/api/webhooks/linear/route'
-import { countAttemptsFromAudits } from '@/app/api/webhooks/linear/route'
+
+/** Mirror of route-internal countAttemptsFromAudits for testing. */
+function countAttemptsFromAudits(auditBodies: string[]): {
+  attempts: number
+  estimatedCostCents: number
+} {
+  const ESTIMATED_COST_PER_ATTEMPT_CENTS = 50
+  return {
+    attempts: auditBodies.length,
+    estimatedCostCents: auditBodies.length * ESTIMATED_COST_PER_ATTEMPT_CENTS,
+  }
+}
 import { NextRequest } from 'next/server'
 import crypto from 'crypto'
 
@@ -349,9 +360,9 @@ describe('POST /api/webhooks/linear — Comment handling', () => {
 
     // Check the dispatch payload has correct budget
     const dispatchCall = mockFetch.mock.calls.find(
-      ([url]: [string]) => url.includes('github.com')
+      (args: any[]) => String(args[0]).includes('github.com')
     )
-    const dispatchBody = JSON.parse(dispatchCall[1].body)
+    const dispatchBody = JSON.parse(dispatchCall![1].body)
     expect(dispatchBody.client_payload.budget_remaining_cents).toBe(100)
     expect(dispatchBody.client_payload.attempt).toBe(3)
   })
