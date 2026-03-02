@@ -11,6 +11,7 @@
 import { LinearClient } from '@linear/sdk'
 import { buildStructuredTicket, classifyArea, type BugTicketInput } from './bug-triage'
 import { investigateTicket } from './ticket-investigator'
+import { supabaseAdmin } from './supabase'
 
 let _client: LinearClient | null = null
 
@@ -585,6 +586,95 @@ export async function documentFixProgress(
   }
 
   return commentOnIssue(issueId, body)
+}
+
+// ── Dedup: find-or-create ────────────────────────────────────────────────────
+
+/**
+ * Check whether a Linear issue is still open (not completed/canceled).
+ * Returns false if the issue can't be fetched or is in a terminal state.
+ */
+export async function isIssueOpen(issueId: string): Promise<boolean> {
+  const client = getClient()
+  if (!client) return false
+
+  try {
+    const issue = await client.issue(issueId)
+    const state = await issue.state
+    if (!state) return false
+    // Linear state types: backlog, unstarted, started, completed, canceled, triage
+    return state.type !== 'completed' && state.type !== 'canceled'
+  } catch (err) {
+    console.error('[linear] Failed to check issue state:', err)
+    return false
+  }
+}
+
+/**
+ * Find an existing open Linear issue for the same error fingerprint,
+ * or create a new one.
+ *
+ * - `fingerprint === null` → always creates (no dedup for manual feedback)
+ * - Matching fingerprint + open issue → add comment, return existing
+ * - Matching fingerprint + closed issue → create new (regression)
+ * - No match → create new
+ */
+export async function findOrCreateFeedbackIssue(
+  input: LinearIssueInput,
+  fingerprint: string | null,
+): Promise<LinearIssueResult | null> {
+  // No fingerprint → skip dedup, create directly
+  if (!fingerprint) {
+    return createFeedbackIssue(input)
+  }
+
+  // Look up the most recent feedback row with the same fingerprint that has a linear_issue_id
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from('feedback')
+      .select('id, metadata')
+      .eq('error_fingerprint', fingerprint)
+      .not('metadata->linear_issue_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (existing?.metadata?.linear_issue_id) {
+      const existingIssueId = existing.metadata.linear_issue_id as string
+      const existingIdentifier = (existing.metadata.linear_issue ?? '') as string
+      const existingUrl = (existing.metadata.linear_url ?? '') as string
+
+      // Check if that issue is still open
+      const open = await isIssueOpen(existingIssueId)
+
+      if (open) {
+        // Count occurrences for the comment
+        const { count } = await supabaseAdmin
+          .from('feedback')
+          .select('id', { count: 'exact', head: true })
+          .eq('error_fingerprint', fingerprint)
+
+        await commentOnIssue(
+          existingIssueId,
+          `**Duplicate occurrence** (#${(count ?? 2)}) of this error reported.\n\nFeedback ID: \`${input.feedbackId ?? 'unknown'}\``,
+        )
+
+        return {
+          id: existingIssueId,
+          identifier: existingIdentifier,
+          url: existingUrl,
+        }
+      }
+
+      // Issue is closed → regression, create a new ticket
+      // (createFeedbackIssue will create a fresh issue)
+      return createFeedbackIssue(input)
+    }
+  } catch {
+    // No matching row or query error — fall through to create
+  }
+
+  return createFeedbackIssue(input)
 }
 
 // ── Connection validation ────────────────────────────────────────────────────

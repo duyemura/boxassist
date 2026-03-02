@@ -393,6 +393,55 @@ export function buildStructuredTicket(input: BugTicketInput): StructuredTicket {
   return { title, description: sections.join('\n'), priority, labels, area }
 }
 
+// ── Error fingerprinting ────────────────────────────────────────────────────
+
+/**
+ * Normalize an error message for fingerprinting: strip UUIDs, quoted strings,
+ * hex hashes, and bare numbers so that the "same" error across different
+ * instances collapses to one key.
+ */
+export function normalizeErrorMessage(msg: string): string {
+  return msg
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<UUID>') // UUIDs
+    .replace(/[0-9a-f]{24,}/gi, '<HEX>')   // long hex strings (Mongo IDs, hashes)
+    .replace(/"[^"]*"/g, '<STR>')           // double-quoted strings
+    .replace(/'[^']*'/g, '<STR>')           // single-quoted strings
+    .replace(/\b\d+(\.\d+)?\b/g, '<N>')    // bare numbers
+    .replace(/\s+/g, ' ')                   // collapse whitespace
+    .trim()
+}
+
+/**
+ * Generate a stable fingerprint for an error.
+ *
+ * Key = `normalizedMessage | topFrame.file | topFrame.fn` (no line numbers —
+ * they shift between deploys). SHA-256 hash, first 16 hex chars.
+ *
+ * Returns null if message is empty/missing.
+ */
+export async function generateErrorFingerprint(
+  message: string,
+  stack?: string | null,
+): Promise<string | null> {
+  if (!message) return null
+
+  const normalized = normalizeErrorMessage(message)
+  const frames = parseStackTrace(stack)
+  const topFrame = frames[0]
+
+  const key = topFrame
+    ? `${normalized}|${topFrame.file}|${topFrame.fn}`
+    : `${normalized}|no-stack`
+
+  // Use Web Crypto (available in Node 18+ and edge runtimes)
+  const data = new TextEncoder().encode(key)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+
+  return hex.slice(0, 16)
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function extractAreaFromUrl(url?: string): string {

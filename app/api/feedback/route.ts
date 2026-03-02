@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { createFeedbackIssue } from '@/lib/linear'
+import { findOrCreateFeedbackIssue } from '@/lib/linear'
+import { generateErrorFingerprint } from '@/lib/bug-triage'
 
 const VALID_TYPES = ['feedback', 'bug', 'error', 'suggestion'] as const
 const BUCKET = 'feedback-screenshots'
@@ -96,13 +97,24 @@ export async function POST(req: NextRequest) {
       ...(screenshotUrl ? { screenshot_url: screenshotUrl } : {}),
     }
 
+    // Generate fingerprint for error/bug types (enables dedup)
+    const feedbackType = type || 'feedback'
+    const isErrorType = feedbackType === 'error' || feedbackType === 'bug'
+    const fingerprint = isErrorType
+      ? await generateErrorFingerprint(
+          message.trim(),
+          metadata?.stack ?? null,
+        )
+      : null
+
     const { data, error } = await supabaseAdmin.from('feedback').insert({
       account_id: accountId,
       user_id: userId,
-      type: type || 'feedback',
+      type: feedbackType,
       message: message.trim().slice(0, 5000),
       url: url ? String(url).slice(0, 2000) : null,
       metadata: enrichedMetadata,
+      error_fingerprint: fingerprint,
       status: 'new',
     }).select().single()
 
@@ -112,18 +124,24 @@ export async function POST(req: NextRequest) {
     }
 
     // Auto-create Linear issue (fire-and-forget, non-blocking)
-    createFeedbackIssue({
-      type: type || 'feedback',
+    // Uses dedup: same error fingerprint → comment on existing ticket instead of creating new one
+    findOrCreateFeedbackIssue({
+      type: feedbackType,
       message: message.trim(),
       url,
       screenshotUrl,
       metadata: enrichedMetadata,
       feedbackId: data.id,
-    }).then(issue => {
+    }, fingerprint).then(issue => {
       if (issue) {
         // Store the Linear issue link back on the feedback row
         supabaseAdmin.from('feedback').update({
-          metadata: { ...enrichedMetadata, linear_issue: issue.identifier, linear_url: issue.url },
+          metadata: {
+            ...enrichedMetadata,
+            linear_issue: issue.identifier,
+            linear_issue_id: issue.id,
+            linear_url: issue.url,
+          },
         }).eq('id', data.id).then(() => {})
       }
     }).catch(err => {

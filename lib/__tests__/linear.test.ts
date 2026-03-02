@@ -15,6 +15,7 @@ const mockCreateIssueLabel = vi.fn()
 const mockCreateComment = vi.fn()
 const mockTeams = vi.fn()
 const mockTeam = vi.fn()
+const mockIssueFetch = vi.fn()
 const mockOrganization = { name: 'GymAgents Dev' }
 
 vi.mock('@linear/sdk', () => {
@@ -27,6 +28,7 @@ vi.mock('@linear/sdk', () => {
       createComment = mockCreateComment
       teams = mockTeams
       team = mockTeam
+      issue = mockIssueFetch
       organization = mockOrganization
     },
   }
@@ -36,6 +38,15 @@ vi.mock('@linear/sdk', () => {
 const mockInvestigateTicket = vi.fn().mockResolvedValue(undefined)
 vi.mock('../ticket-investigator', () => ({
   investigateTicket: (...args: unknown[]) => mockInvestigateTicket(...args),
+}))
+
+// ── Mock supabase (for findOrCreateFeedbackIssue dedup queries) ─────────────
+
+const mockSupaFrom = vi.fn()
+vi.mock('../supabase', () => ({
+  supabaseAdmin: {
+    from: (...args: any[]) => mockSupaFrom(...args),
+  },
 }))
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -565,6 +576,229 @@ describe('linear lifecycle hooks', () => {
 
       // Should also transition to Done
       expect(mockIssueUpdate).toHaveBeenCalledWith('issue-123', { stateId: 'st-3' })
+    })
+  })
+})
+
+// ── Dedup: isIssueOpen + findOrCreateFeedbackIssue ──────────────────────────
+
+describe('linear dedup', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    process.env.LINEAR_API_KEY = 'lin_test_key'
+    process.env.LINEAR_TEAM_ID = 'team-001'
+  })
+
+  // Helper to build a supabase chain mock for the dedup query
+  function setupFeedbackLookup(result: { data: any; error: any }) {
+    const singleFn = vi.fn().mockResolvedValue(result)
+    const limitFn = vi.fn().mockReturnValue({ single: singleFn })
+    const orderFn = vi.fn().mockReturnValue({ limit: limitFn })
+    const notFn = vi.fn().mockReturnValue({ order: orderFn })
+    const eqFn = vi.fn().mockReturnValue({ not: notFn })
+    const selectFn = vi.fn().mockReturnValue({ eq: eqFn })
+    mockSupaFrom.mockReturnValue({ select: selectFn })
+    return { selectFn, eqFn, notFn, orderFn, limitFn, singleFn }
+  }
+
+  function setupFeedbackCount(count: number) {
+    const singleFn = vi.fn().mockResolvedValue({ count, error: null })
+    const limitFn = vi.fn().mockReturnValue({ single: singleFn })
+    const orderFn = vi.fn().mockReturnValue({ limit: limitFn })
+    const notFn = vi.fn().mockReturnValue({ order: orderFn })
+    const headFn = vi.fn().mockResolvedValue({ count, error: null })
+    const eqFn2 = vi.fn().mockReturnValue(headFn)
+    const eqFn = vi.fn()
+    const selectFn = vi.fn()
+
+    // First call returns lookup result, second call returns count
+    return { eqFn, selectFn, headFn, count }
+  }
+
+  describe('isIssueOpen', () => {
+    it('returns true for an issue in started state', async () => {
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'started' }),
+      })
+
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(true)
+    })
+
+    it('returns true for an issue in triage state', async () => {
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'triage' }),
+      })
+
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(true)
+    })
+
+    it('returns false for a completed issue', async () => {
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'completed' }),
+      })
+
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(false)
+    })
+
+    it('returns false for a canceled issue', async () => {
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'canceled' }),
+      })
+
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(false)
+    })
+
+    it('returns false when Linear is not configured', async () => {
+      delete process.env.LINEAR_API_KEY
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(false)
+    })
+
+    it('returns false on API error', async () => {
+      mockIssueFetch.mockRejectedValue(new Error('network error'))
+
+      const { isIssueOpen } = await import('../linear')
+      expect(await isIssueOpen('issue-1')).toBe(false)
+    })
+  })
+
+  describe('findOrCreateFeedbackIssue', () => {
+    const baseInput = {
+      type: 'error',
+      message: 'TypeError: x is not a function',
+      feedbackId: 'fb-100',
+    }
+
+    it('creates directly when fingerprint is null (manual feedback)', async () => {
+      const mockIssue = { id: 'new-1', identifier: 'GA-50', url: 'https://linear.app/ga/GA-50' }
+      mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'lbl-1' }] })
+      mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+      const { findOrCreateFeedbackIssue } = await import('../linear')
+      const result = await findOrCreateFeedbackIssue(
+        { ...baseInput, type: 'feedback', message: 'Nice app' },
+        null,
+      )
+
+      expect(result).toEqual({ id: 'new-1', identifier: 'GA-50', url: 'https://linear.app/ga/GA-50' })
+      expect(mockIssueCreate).toHaveBeenCalled()
+      // Should NOT have queried supabase for dedup
+      expect(mockSupaFrom).not.toHaveBeenCalled()
+    })
+
+    it('creates new issue when no previous fingerprint match exists', async () => {
+      // Supabase lookup returns no match
+      setupFeedbackLookup({ data: null, error: { code: 'PGRST116' } })
+
+      const mockIssue = { id: 'new-2', identifier: 'GA-51', url: 'https://linear.app/ga/GA-51' }
+      mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'lbl-1' }] })
+      mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+      const { findOrCreateFeedbackIssue } = await import('../linear')
+      const result = await findOrCreateFeedbackIssue(baseInput, 'abc123def456abcd')
+
+      expect(result).toEqual({ id: 'new-2', identifier: 'GA-51', url: 'https://linear.app/ga/GA-51' })
+      expect(mockIssueCreate).toHaveBeenCalled()
+    })
+
+    it('comments on existing open issue instead of creating new one', async () => {
+      // Supabase lookup returns a match with linear_issue_id
+      const singleFn = vi.fn().mockResolvedValue({
+        data: {
+          id: 'fb-prev',
+          metadata: {
+            linear_issue_id: 'existing-issue-id',
+            linear_issue: 'GA-40',
+            linear_url: 'https://linear.app/ga/GA-40',
+          },
+        },
+        error: null,
+      })
+      const limitFn = vi.fn().mockReturnValue({ single: singleFn })
+      const orderFn = vi.fn().mockReturnValue({ limit: limitFn })
+      const notFn = vi.fn().mockReturnValue({ order: orderFn })
+      const eqFn = vi.fn().mockReturnValue({ not: notFn })
+      const selectFn = vi.fn().mockReturnValue({ eq: eqFn })
+
+      // Count query (second call to from('feedback'))
+      const countHeadFn = vi.fn().mockResolvedValue({ count: 3, error: null })
+      const countEqFn = vi.fn().mockReturnValue(countHeadFn)
+      const countSelectFn = vi.fn().mockReturnValue({ eq: countEqFn })
+
+      let callCount = 0
+      mockSupaFrom.mockImplementation(() => {
+        callCount++
+        if (callCount === 1) return { select: selectFn }
+        return { select: countSelectFn }
+      })
+
+      // Issue is open
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'started' }),
+      })
+
+      // Comment succeeds
+      mockCreateComment.mockResolvedValue({ comment: { id: 'c-1' } })
+
+      const { findOrCreateFeedbackIssue } = await import('../linear')
+      const result = await findOrCreateFeedbackIssue(baseInput, 'abc123def456abcd')
+
+      // Should return existing issue, not create new
+      expect(result).toEqual({
+        id: 'existing-issue-id',
+        identifier: 'GA-40',
+        url: 'https://linear.app/ga/GA-40',
+      })
+      expect(mockIssueCreate).not.toHaveBeenCalled()
+      expect(mockCreateComment).toHaveBeenCalledWith({
+        issueId: 'existing-issue-id',
+        body: expect.stringContaining('Duplicate occurrence'),
+      })
+    })
+
+    it('creates new issue when matching fingerprint exists but issue is closed (regression)', async () => {
+      // Supabase lookup returns a match
+      const singleFn = vi.fn().mockResolvedValue({
+        data: {
+          id: 'fb-old',
+          metadata: {
+            linear_issue_id: 'closed-issue-id',
+            linear_issue: 'GA-30',
+            linear_url: 'https://linear.app/ga/GA-30',
+          },
+        },
+        error: null,
+      })
+      const limitFn = vi.fn().mockReturnValue({ single: singleFn })
+      const orderFn = vi.fn().mockReturnValue({ limit: limitFn })
+      const notFn = vi.fn().mockReturnValue({ order: orderFn })
+      const eqFn = vi.fn().mockReturnValue({ not: notFn })
+      const selectFn = vi.fn().mockReturnValue({ eq: eqFn })
+      mockSupaFrom.mockReturnValue({ select: selectFn })
+
+      // Issue is closed
+      mockIssueFetch.mockResolvedValue({
+        state: Promise.resolve({ type: 'completed' }),
+      })
+
+      // New issue creation
+      const mockIssue = { id: 'new-regression', identifier: 'GA-60', url: 'https://linear.app/ga/GA-60' }
+      mockIssueLabels.mockResolvedValue({ nodes: [{ id: 'lbl-1' }] })
+      mockIssueCreate.mockResolvedValue({ issue: mockIssue })
+
+      const { findOrCreateFeedbackIssue } = await import('../linear')
+      const result = await findOrCreateFeedbackIssue(baseInput, 'abc123def456abcd')
+
+      // Should create a NEW issue (regression)
+      expect(result).toEqual({ id: 'new-regression', identifier: 'GA-60', url: 'https://linear.app/ga/GA-60' })
+      expect(mockIssueCreate).toHaveBeenCalled()
+      // Should NOT have commented on the closed issue
+      expect(mockCreateComment).not.toHaveBeenCalled()
     })
   })
 })

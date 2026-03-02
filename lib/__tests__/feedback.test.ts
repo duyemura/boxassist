@@ -51,9 +51,14 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 
-const mockCreateFeedbackIssue = vi.fn()
+const mockFindOrCreateFeedbackIssue = vi.fn()
 vi.mock('@/lib/linear', () => ({
-  createFeedbackIssue: (...args: any[]) => mockCreateFeedbackIssue(...args),
+  findOrCreateFeedbackIssue: (...args: any[]) => mockFindOrCreateFeedbackIssue(...args),
+}))
+
+const mockGenerateErrorFingerprint = vi.fn()
+vi.mock('@/lib/bug-triage', () => ({
+  generateErrorFingerprint: (...args: any[]) => mockGenerateErrorFingerprint(...args),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -100,8 +105,10 @@ describe('POST /api/feedback', () => {
     mockStorageCreateBucket.mockReset()
     mockStorageUpload.mockReset()
     mockStorageGetPublicUrl.mockReset()
-    mockCreateFeedbackIssue.mockReset()
-    mockCreateFeedbackIssue.mockResolvedValue(null) // Linear not configured by default
+    mockFindOrCreateFeedbackIssue.mockReset()
+    mockFindOrCreateFeedbackIssue.mockResolvedValue(null) // Linear not configured by default
+    mockGenerateErrorFingerprint.mockReset()
+    mockGenerateErrorFingerprint.mockResolvedValue(null) // No fingerprint by default
     const mod = await import('@/app/api/feedback/route')
     POST = mod.POST
   })
@@ -218,6 +225,98 @@ describe('POST /api/feedback', () => {
     }))
 
     expect(res.status).toBe(201)
+  })
+
+  it('generates fingerprint for error type and includes in insert', async () => {
+    mockGenerateErrorFingerprint.mockResolvedValue('abc123def456abcd')
+    const { insertFn } = setupInsertMock({ data: { id: 'fb-fp' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'error',
+      message: 'TypeError: x is not a function',
+      metadata: { stack: 'at render (components/A.tsx:10:5)' },
+    }))
+
+    // Should have called generateErrorFingerprint with the message and stack
+    expect(mockGenerateErrorFingerprint).toHaveBeenCalledWith(
+      'TypeError: x is not a function',
+      'at render (components/A.tsx:10:5)',
+    )
+
+    // Should include fingerprint in the DB insert
+    const insertArg = insertFn.mock.calls[0][0]
+    expect(insertArg.error_fingerprint).toBe('abc123def456abcd')
+  })
+
+  it('generates fingerprint for bug type', async () => {
+    mockGenerateErrorFingerprint.mockResolvedValue('deadbeef12345678')
+    const { insertFn } = setupInsertMock({ data: { id: 'fb-bug' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'bug',
+      message: 'Something broke',
+    }))
+
+    expect(mockGenerateErrorFingerprint).toHaveBeenCalled()
+    expect(insertFn.mock.calls[0][0].error_fingerprint).toBe('deadbeef12345678')
+  })
+
+  it('does not generate fingerprint for feedback type', async () => {
+    const { insertFn } = setupInsertMock({ data: { id: 'fb-nofp' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'feedback',
+      message: 'Nice app',
+    }))
+
+    expect(mockGenerateErrorFingerprint).not.toHaveBeenCalled()
+    expect(insertFn.mock.calls[0][0].error_fingerprint).toBeNull()
+  })
+
+  it('does not generate fingerprint for suggestion type', async () => {
+    const { insertFn } = setupInsertMock({ data: { id: 'fb-sug' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'suggestion',
+      message: 'Add dark mode',
+    }))
+
+    expect(mockGenerateErrorFingerprint).not.toHaveBeenCalled()
+    expect(insertFn.mock.calls[0][0].error_fingerprint).toBeNull()
+  })
+
+  it('passes fingerprint to findOrCreateFeedbackIssue', async () => {
+    mockGenerateErrorFingerprint.mockResolvedValue('fp1234567890abcd')
+    setupInsertMock({ data: { id: 'fb-pass' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'error',
+      message: 'Crash',
+    }))
+
+    // Give fire-and-forget a tick
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(mockFindOrCreateFeedbackIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', message: 'Crash' }),
+      'fp1234567890abcd',
+    )
+  })
+
+  it('passes null fingerprint for non-error types', async () => {
+    setupInsertMock({ data: { id: 'fb-null' }, error: null })
+
+    await POST(makeRequest('POST', {
+      type: 'feedback',
+      message: 'Hello',
+    }))
+
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(mockFindOrCreateFeedbackIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'feedback' }),
+      null,
+    )
   })
 })
 
